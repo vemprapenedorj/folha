@@ -1,6 +1,6 @@
 # Escala semanal · Hotel Titanic
 
-App web para preparar, publicar e compartilhar a escala planejada do hotel. A grade usa os funcionários e horários identificados nas imagens de referência. Nenhuma escala histórica foi preenchida automaticamente.
+App web para preparar, publicar e compartilhar a escala planejada do hotel. A grade usa os funcionários e horários identificados nas imagens de referência.
 
 ## Abrir no Windows
 
@@ -35,13 +35,15 @@ O link público segue o formato `/?week=AAAA-MM-DD`, usando a segunda-feira da s
 Para trocar a senha do responsável, use **Alterar senha** na tela de login ou na área de edição. Informe a senha atual, uma nova senha de **6 a 12 caracteres contendo apenas letras e números**, e confirme. Após a troca, entre novamente com a senha nova. Senhas já cadastradas continuam válidas até serem alteradas.
 Se o servidor usar a variável `ADMIN_PASSWORD`, a senha deve ser alterada nessa configuração.
 
-## Disponibilização online
+## Versão online
 
-O projeto está preparado para ser publicado na Vercel a partir do GitHub. No ambiente online, as escalas e o hash da senha ficam em um banco Supabase; a pasta `.data/` continua sendo usada apenas na execução local e está fora do Git.
+O app está publicado em [folha-hotel-titanic.vercel.app](https://folha-hotel-titanic.vercel.app/), conectado à branch `main` de [vemprapenedorj/folha](https://github.com/vemprapenedorj/folha). Cada envio para essa branch gera uma nova publicação na Vercel.
 
-Para ativar a versão online, crie as funções `escala_load` e `escala_save` e o armazenamento protegido no Supabase, depois configure estas variáveis na Vercel: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` e `ESCALA_STORE_SECRET`. O segredo deve ter 32 bytes aleatórios e ser igual ao cadastrado no banco. Nunca coloque o segredo, a senha ou a pasta `.data/` no repositório. A senha online pode ser alterada pelo próprio app após a ativação.
+As quatro semanas que existiam localmente em 31/10/2026 foram copiadas para o projeto Supabase `folha-hotel-titanic`. A semana de 09/11/2026 estava publicada; as demais continuam como rascunho. A partir da migração, a versão local e a online guardam seus dados separadamente. Edite a versão online para que o link público reflita as alterações.
 
-O link público `/?week=AAAA-MM-DD` mostra somente semanas publicadas. A ligação do repositório à Vercel ativa as publicações automáticas a cada envio para a branch `main`.
+Na Vercel, as variáveis `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` e `ESCALA_STORE_SECRET` estão configuradas para produção e prévias. O banco protege os dados com RLS e uma chave privada acessada somente pelo servidor. A pasta `.data/`, a senha e o segredo não estão no Git. A senha online pode ser alterada pelo próprio app.
+
+O link público `/?week=AAAA-MM-DD` mostra somente semanas publicadas. Por exemplo, [semana de 09/11/2026](https://folha-hotel-titanic.vercel.app/?week=2026-11-09).
 
 ## Verificação
 
