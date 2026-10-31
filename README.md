@@ -37,13 +37,13 @@ Se o servidor usar a variável `ADMIN_PASSWORD`, a senha deve ser alterada nessa
 
 ## Versão online
 
-O app está publicado em [folha-hotel-titanic.vercel.app](https://folha-hotel-titanic.vercel.app/), conectado à branch `main` de [vemprapenedorj/folha](https://github.com/vemprapenedorj/folha). Cada envio para essa branch gera uma nova publicação na Vercel.
+O projeto `folhaht` está publicado em [folhaht.vercel.app](https://folhaht.vercel.app/), conectado à branch `main` de [vemprapenedorj/folha](https://github.com/vemprapenedorj/folha). Cada envio para essa branch gera uma nova publicação na Vercel. O endereço anterior continua funcionando para links já compartilhados.
 
 As quatro semanas que existiam localmente em 31/10/2026 foram copiadas para o projeto Supabase `folha-hotel-titanic`. A semana de 09/11/2026 estava publicada; as demais continuam como rascunho. A partir da migração, a versão local e a online guardam seus dados separadamente. Edite a versão online para que o link público reflita as alterações.
 
 Na Vercel, as variáveis `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` e `ESCALA_STORE_SECRET` estão configuradas para produção e prévias. O banco protege os dados com RLS e uma chave privada acessada somente pelo servidor. A pasta `.data/`, a senha e o segredo não estão no Git. A senha online pode ser alterada pelo próprio app.
 
-O link público `/?week=AAAA-MM-DD` mostra somente semanas publicadas. Por exemplo, [semana de 09/11/2026](https://folha-hotel-titanic.vercel.app/?week=2026-11-09).
+O link público `/?week=AAAA-MM-DD` mostra somente semanas publicadas. Por exemplo, [semana de 09/11/2026](https://folhaht.vercel.app/?week=2026-11-09).
 
 ## Verificação
 
