@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
-import { randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,13 +9,35 @@ const dataDir = process.env.DATA_DIR || join(root, '.data');
 const dataFile = join(dataDir, 'schedule.json');
 const passwordFile = join(dataDir, 'admin-password.txt');
 const port = Number(process.env.PORT || 3000);
+const remoteMode = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.ESCALA_STORE_SECRET);
 const sessions = new Map();
 const defaultPeople = ['Diego', 'Rafael', 'Mauri', 'Gerson', 'Bruno', 'Denin', 'Ysa', 'Amanda', 'Val', 'Diogo'];
 const defaultShifts = ['06:30–14:30', '07:00–15:20', '09:00–17:00', '10:00–18:00', '11:00–19:00', '14:00–22:20', '19:00–07:00'];
 const statuses = ['folga', 'ferias', 'atestado'];
 let db;
 let adminPassword;
+let adminPasswordHash;
 let writing = Promise.resolve();
+
+if (process.env.VERCEL && !remoteMode) throw new Error('Configure SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY e ESCALA_STORE_SECRET.');
+
+async function remoteCall(name, payload) {
+  const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
+    method: 'POST',
+    headers: { apikey: process.env.SUPABASE_PUBLISHABLE_KEY, Authorization: `Bearer ${process.env.SUPABASE_PUBLISHABLE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_secret: process.env.ESCALA_STORE_SECRET, ...payload })
+  });
+  if (!response.ok) throw new Error(`Armazenamento indisponível (${response.status})`);
+  return response.json();
+}
+
+async function refreshState() {
+  if (!remoteMode) return;
+  const state = await remoteCall('escala_load', {});
+  if (!state?.db || !state?.passwordHash) throw new Error('Armazenamento não configurado');
+  db = state.db;
+  adminPasswordHash = state.passwordHash;
+}
 
 function send(res, status, data, headers = {}) {
   const body = typeof data === 'string' ? data : JSON.stringify(data);
@@ -35,12 +57,35 @@ function safeEqual(a, b) {
   const right = scryptSync(b, salt, 32);
   return timingSafeEqual(left, right);
 }
+function passwordMatches(password) {
+  if (!remoteMode) return safeEqual(password, adminPassword);
+  const hash = scryptSync(password, 'escala-hotel-titanic', 32);
+  const stored = Buffer.from(adminPasswordHash, 'hex');
+  return stored.length === hash.length && timingSafeEqual(hash, stored);
+}
+function sessionSignature(expiry) {
+  return createHmac('sha256', process.env.ESCALA_STORE_SECRET).update(`${expiry}:${adminPasswordHash}`).digest('hex');
+}
 function authorized(req) {
+  if (remoteMode) {
+    const match = /(?:^|; )escala_session=([a-f0-9]{76})(?:;|$)/.exec(req.headers.cookie || '');
+    if (!match) return false;
+    const expiry = match[1].slice(0, 12);
+    if (parseInt(expiry, 16) <= Date.now()) return false;
+    const received = Buffer.from(match[1].slice(12), 'hex');
+    const expected = Buffer.from(sessionSignature(expiry), 'hex');
+    return timingSafeEqual(received, expected);
+  }
   const match = /(?:^|; )escala_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || '');
   const expiry = match && sessions.get(match[1]);
   return Boolean(expiry && expiry > Date.now());
 }
 async function persist() {
+  if (remoteMode) {
+    const result = await remoteCall('escala_save', { p_state: { db, passwordHash: adminPasswordHash } });
+    if (result !== true) throw new Error('Não foi possível salvar a escala');
+    return;
+  }
   const content = JSON.stringify(db, null, 2);
   writing = writing.then(async () => {
     const temp = `${dataFile}.${randomBytes(6).toString('hex')}.tmp`;
@@ -50,6 +95,7 @@ async function persist() {
   await writing;
 }
 async function bodyJson(req) {
+  if (req.body !== undefined) return typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
   let text = '';
   for await (const chunk of req) {
     text += chunk;
@@ -76,29 +122,35 @@ async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const path = url.pathname;
   try {
+    if (remoteMode && path.startsWith('/api/') && path !== '/api/version') await refreshState();
     if (path === '/api/login' && req.method === 'POST') {
       const { password } = await bodyJson(req);
-      if (typeof password !== 'string' || !safeEqual(password, adminPassword)) return send(res, 401, { error: 'Senha incorreta' });
-      const token = randomBytes(32).toString('hex');
-      sessions.set(token, Date.now() + 7 * 86400_000);
+      if (typeof password !== 'string' || !passwordMatches(password)) return send(res, 401, { error: 'Senha incorreta' });
+      const token = remoteMode ? (() => { const expiry = (Date.now() + 7 * 86400_000).toString(16).padStart(12, '0'); return expiry + sessionSignature(expiry); })() : randomBytes(32).toString('hex');
+      if (!remoteMode) sessions.set(token, Date.now() + 7 * 86400_000);
       return send(res, 200, { ok: true }, { 'Set-Cookie': `escala_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
     }
     if (path === '/api/change-password' && req.method === 'POST') {
-      if (process.env.ADMIN_PASSWORD) return send(res, 409, { error: 'A senha deste servidor é definida no ambiente. Altere ADMIN_PASSWORD na configuração do servidor.' });
+      if (!remoteMode && process.env.ADMIN_PASSWORD) return send(res, 409, { error: 'A senha deste servidor é definida no ambiente. Altere ADMIN_PASSWORD na configuração do servidor.' });
       const { currentPassword, newPassword } = await bodyJson(req);
       if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !/^[\p{L}\p{N}]{6,12}$/u.test(newPassword)) return send(res, 400, { error: 'A nova senha deve ter de 6 a 12 caracteres, usando somente letras e números.' });
-      if (!safeEqual(currentPassword, adminPassword)) return send(res, 401, { error: 'Senha atual incorreta.' });
-      if (safeEqual(newPassword, adminPassword)) return send(res, 400, { error: 'Escolha uma senha diferente da atual.' });
-      const temporaryPasswordFile = `${passwordFile}.${randomBytes(6).toString('hex')}.tmp`;
-      await writeFile(temporaryPasswordFile, newPassword, { mode: 0o600 });
-      await rename(temporaryPasswordFile, passwordFile);
-      adminPassword = newPassword;
+      if (!passwordMatches(currentPassword)) return send(res, 401, { error: 'Senha atual incorreta.' });
+      if (passwordMatches(newPassword)) return send(res, 400, { error: 'Escolha uma senha diferente da atual.' });
+      if (remoteMode) {
+        adminPasswordHash = scryptSync(newPassword, 'escala-hotel-titanic', 32).toString('hex');
+        await persist();
+      } else {
+        const temporaryPasswordFile = `${passwordFile}.${randomBytes(6).toString('hex')}.tmp`;
+        await writeFile(temporaryPasswordFile, newPassword, { mode: 0o600 });
+        await rename(temporaryPasswordFile, passwordFile);
+        adminPassword = newPassword;
+      }
       sessions.clear();
       return send(res, 200, { ok: true });
     }
     if (path === '/api/logout' && req.method === 'POST') {
       const match = /escala_session=([a-f0-9]{64})/.exec(req.headers.cookie || '');
-      if (match) sessions.delete(match[1]);
+      if (match && !remoteMode) sessions.delete(match[1]);
       return send(res, 200, { ok: true }, { 'Set-Cookie': 'escala_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0' });
     }
     if (path === '/api/me' && req.method === 'GET') return send(res, 200, { editor: authorized(req) });
@@ -185,17 +237,19 @@ async function handler(req, res) {
   }
 }
 
-await mkdir(dataDir, { recursive: true });
-try { db = JSON.parse(await readFile(dataFile, 'utf8')); }
-catch { db = { people: defaultPeople, shifts: defaultShifts, weeks: {} }; await persist(); }
-adminPassword = process.env.ADMIN_PASSWORD;
-if (!adminPassword) {
-  try { adminPassword = (await readFile(passwordFile, 'utf8')).trim(); }
-  catch {
-    const allowed = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-    adminPassword = Array.from({ length: 12 }, () => allowed[randomInt(allowed.length)]).join('');
-    await writeFile(passwordFile, adminPassword, { mode: 0o600 });
-    console.log(`Senha inicial do editor: ${adminPassword}`);
+if (!remoteMode) {
+  await mkdir(dataDir, { recursive: true });
+  try { db = JSON.parse(await readFile(dataFile, 'utf8')); }
+  catch { db = { people: defaultPeople, shifts: defaultShifts, weeks: {} }; await persist(); }
+  adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminPassword) {
+    try { adminPassword = (await readFile(passwordFile, 'utf8')).trim(); }
+    catch {
+      const allowed = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+      adminPassword = Array.from({ length: 12 }, () => allowed[randomInt(allowed.length)]).join('');
+      await writeFile(passwordFile, adminPassword, { mode: 0o600 });
+      console.log(`Senha inicial do editor: ${adminPassword}`);
+    }
   }
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) createServer(handler).listen(port, () => console.log(`Escala disponível em http://localhost:${port}`));

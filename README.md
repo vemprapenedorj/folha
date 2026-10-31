@@ -37,7 +37,11 @@ Se o servidor usar a variável `ADMIN_PASSWORD`, a senha deve ser alterada nessa
 
 ## Disponibilização online
 
-O link só funciona em outros dispositivos depois que o app estiver hospedado em um endereço acessível pela internet. A hospedagem precisa executar Node.js 24+, oferecer HTTPS e manter `.data/` em armazenamento persistente. Defina `ADMIN_PASSWORD` por variável de ambiente na hospedagem. Não publique a pasta `.data/` como arquivo estático.
+O projeto está preparado para ser publicado na Vercel a partir do GitHub. No ambiente online, as escalas e o hash da senha ficam em um banco Supabase; a pasta `.data/` continua sendo usada apenas na execução local e está fora do Git.
+
+Para ativar a versão online, crie as funções `escala_load` e `escala_save` e o armazenamento protegido no Supabase, depois configure estas variáveis na Vercel: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` e `ESCALA_STORE_SECRET`. O segredo deve ter 32 bytes aleatórios e ser igual ao cadastrado no banco. Nunca coloque o segredo, a senha ou a pasta `.data/` no repositório. A senha online pode ser alterada pelo próprio app após a ativação.
+
+O link público `/?week=AAAA-MM-DD` mostra somente semanas publicadas. A ligação do repositório à Vercel ativa as publicações automáticas a cada envio para a branch `main`.
 
 ## Verificação
 
