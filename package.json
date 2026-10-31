@@ -1,0 +1,11 @@
+{
+  "name": "escala-hotel-titanic",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/week-calendar.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=24" }
+}
