@@ -128,7 +128,9 @@ async function handler(req, res) {
       if (typeof password !== 'string' || !passwordMatches(password)) return send(res, 401, { error: 'Senha incorreta' });
       const token = remoteMode ? (() => { const expiry = (Date.now() + 7 * 86400_000).toString(16).padStart(12, '0'); return expiry + sessionSignature(expiry); })() : randomBytes(32).toString('hex');
       if (!remoteMode) sessions.set(token, Date.now() + 7 * 86400_000);
-      return send(res, 200, { ok: true }, { 'Set-Cookie': `escala_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
+      const initialWeek = weekStart(url.searchParams.get('week'));
+      const payload = initialWeek ? { ok: true, editor: true, people: db.people, shifts: db.shifts, week: schedule(initialWeek) } : { ok: true };
+      return send(res, 200, payload, { 'Set-Cookie': `escala_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
     }
     if (path === '/api/change-password' && req.method === 'POST') {
       if (!remoteMode && process.env.ADMIN_PASSWORD) return send(res, 409, { error: 'A senha deste servidor é definida no ambiente. Altere ADMIN_PASSWORD na configuração do servidor.' });
@@ -154,6 +156,11 @@ async function handler(req, res) {
       return send(res, 200, { ok: true }, { 'Set-Cookie': 'escala_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0' });
     }
     if (path === '/api/me' && req.method === 'GET') return send(res, 200, { editor: authorized(req) });
+    if (path === '/api/bootstrap' && req.method === 'GET') {
+      if (!authorized(req)) return send(res, 200, { editor: false });
+      const key = weekStart(url.searchParams.get('week'));
+      return key ? send(res, 200, { editor: true, people: db.people, shifts: db.shifts, week: schedule(key) }) : send(res, 400, { error: 'Semana inválida' });
+    }
     if (path === '/api/version' && req.method === 'GET') return send(res, 200, { app: 'escala-hotel-titanic', version: 3 });
     if (path === '/api/public' && req.method === 'GET') {
       const key = weekStart(url.searchParams.get('week'));

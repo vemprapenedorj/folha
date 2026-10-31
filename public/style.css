@@ -13,6 +13,7 @@ td span{font-size:14px;font-weight:500}
 td[data-kind=folga]{background:#cfe7d2;color:#255a39}
 td[data-kind=ferias]{background:#f6dcab;color:#80551d}
 td[data-kind=atestado]{background:#f3cbc2;color:#8c392c}
+td[data-kind]{border-right-color:#8dad95;border-bottom-color:#8dad95}
 td[data-kind] select,td[data-kind] span{font-size:15px;font-weight:700}
 @media print{table{min-width:0}thead th{font-size:10px}thead th:first-child{width:120px}thead th .date{font-size:10px}tbody th{font-size:10px}td select,td span,td[data-kind] select,td[data-kind] span{font-size:10px}}
 

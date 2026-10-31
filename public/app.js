@@ -88,16 +88,25 @@ async function loadWeek() {
     else notice(error.message, true);
   }
 }
+function showEditorWeek(data) {
+  editor = true;
+  people = data.people;
+  shifts = data.shifts;
+  current = data.week;
+  dirty = false;
+  showWorkspace();
+  render();
+  notice(current.published && current.updatedAt ? `Atualizada em ${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(current.updatedAt))}.` : '');
+}
 async function setup() {
   if (viewing) { showWorkspace(); await loadWeek(); return; }
-  editor = (await api('/api/me')).editor;
-  if (!editor) { $('#login').hidden = false; return; }
-  const data = await api('/api/data'); people = data.people; shifts = data.shifts;
-  showWorkspace(); await loadWeek();
+  const data = await api(`/api/bootstrap?week=${selected}`);
+  if (!data.editor) { $('#login').hidden = false; return; }
+  showEditorWeek(data);
 }
 $('#login-form').addEventListener('submit', async event => {
   event.preventDefault();
-  try { await api('/api/login', { method: 'POST', body: JSON.stringify({ password: $('#password').value }) }); $('#password').value = ''; $('#login-error').textContent = ''; await setup(); }
+  try { const data = await api(`/api/login?week=${selected}`, { method: 'POST', body: JSON.stringify({ password: $('#password').value }) }); $('#password').value = ''; $('#login-error').textContent = ''; showEditorWeek(data); }
   catch (error) { $('#login-error').textContent = error.message; }
 });
 $('#previous').addEventListener('click', () => { selected = addDays(selected, -7); loadWeek(); });
@@ -204,7 +213,7 @@ $('#png').addEventListener('click', () => {
       ctx.font = labels[value] ? 'bold 15px Arial' : '14px Arial'; ctx.fillText(labels[value] || value || '—', x + 9, y + rh / 2);
     });
   });
-  ctx.strokeStyle = '#d7dfdf'; ctx.lineWidth = 1;
+  ctx.strokeStyle = '#a5b8aa'; ctx.lineWidth = 1;
   for (let r = 0; r <= people.length; r++) { const y = hh + r * rh + .5; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
   for (let d = 0; d <= 7; d++) { const x = nw + d * cw + .5; ctx.beginPath(); ctx.moveTo(x, hh); ctx.lineTo(x, hh + rh * people.length); ctx.stroke(); }
   ctx.fillStyle = '#596c71'; ctx.font = '12px Arial'; ctx.fillText('Horários planejados · Hotel Titanic Penedo', 15, height - 22);

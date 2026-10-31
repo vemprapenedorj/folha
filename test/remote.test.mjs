@@ -33,10 +33,14 @@ async function request(method, url, data, cookie = '') {
 
 test('escala e login persistem entre chamadas e a troca de senha invalida a sessão', async () => {
   assert.equal((await request('GET', '/api/me')).body.editor, false);
-  const login = await request('POST', '/api/login', { password: 'Senha123' });
+  assert.equal((await request('GET', '/api/bootstrap?week=2030-01-07')).body.editor, false);
+  const login = await request('POST', '/api/login?week=2030-01-07', { password: 'Senha123' });
   assert.equal(login.status, 200);
+  assert.equal(login.body.week.start, '2030-01-07');
+  assert.deepEqual(login.body.people, ['Diego', 'Diogo']);
   const cookie = login.headers['Set-Cookie'].split(';')[0];
   assert.equal((await request('GET', '/api/me', undefined, cookie)).body.editor, true);
+  assert.equal((await request('GET', '/api/bootstrap?week=2030-01-07', undefined, cookie)).body.week.start, '2030-01-07');
   const week = '2030-01-07';
   assert.equal((await request('PUT', '/api/week', { start: week, entries: { Diego: { 0: '06:30–14:30' } } }, cookie)).status, 200);
   assert.equal(state.db.weeks[week].entries.Diego[0], '06:30–14:30');
