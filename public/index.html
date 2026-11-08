@@ -24,19 +24,21 @@
       <h1>Acesso do responsável</h1>
       <p>Selecione a escala que deseja gerenciar:</p>
       <div class="login-sector-picker" role="tablist">
-        <button type="button" class="sector-btn active" data-dept="camareiras" role="tab" aria-selected="true">
+        <button type="button" class="sector-btn sector-btn-camareiras active" data-dept="camareiras" role="tab" aria-selected="true">
+          <span class="sector-tag tag-camareiras">GOVERNANÇA</span>
           <span class="sector-title">Camareiras</span>
-          <span class="sector-desc">Governança</span>
+          <span class="sector-desc">Escala das camareiras</span>
         </button>
-        <button type="button" class="sector-btn" data-dept="geral" role="tab" aria-selected="false">
+        <button type="button" class="sector-btn sector-btn-geral" data-dept="geral" role="tab" aria-selected="false">
+          <span class="sector-tag tag-geral">RECEPÇÃO</span>
           <span class="sector-title">Recepção</span>
-          <span class="sector-desc">Equipe Geral</span>
+          <span class="sector-desc">Escala da equipe geral</span>
         </button>
       </div>
       <form id="login-form">
         <label for="password" id="password-label">Senha de Camareiras</label>
         <input id="password" type="password" required autocomplete="current-password" placeholder="Digite a senha">
-        <button class="primary" id="login-btn">Entrar em Camareiras</button>
+        <button type="submit" id="login-btn" class="sector-submit-camareiras">Entrar em Camareiras</button>
       </form>
       <button id="open-password-login" class="quiet password-link" type="button">Alterar senha deste setor</button>
       <p id="login-error" class="error" role="alert"></p>

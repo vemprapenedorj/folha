@@ -37,12 +37,30 @@ td[data-kind] select,td[data-kind] span{font-size:15px;font-weight:700}
 .topbar-right{display:flex;align-items:center;gap:14px}
 .topbar-logout-btn{background:#bc934b;color:#18313a;border:0;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s}
 .topbar-logout-btn:hover{background:#cda45e}
-.login-sector-picker{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0 18px}
-.sector-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 10px;border:2px solid #bbc9ca;border-radius:10px;background:#f8faf9;color:#18313a;cursor:pointer;transition:border-color .15s,background .15s,box-shadow .15s}
-.sector-btn:hover{border-color:#023441;background:#fff}
-.sector-btn.active{border-color:#023441;background:#fff;box-shadow:0 0 0 3px #02344124}
-.sector-btn .sector-title{font-size:15px;font-weight:700;color:#023441}
-.sector-btn .sector-desc{font-size:12px;color:#596c71;margin-top:3px}
+.login-sector-picker{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:12px 0 20px}
+.sector-btn{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px 12px;border:2px solid #bbc9ca;border-radius:12px;background:#fff;color:#18313a;cursor:pointer;transition:border-color .15s,background .15s,box-shadow .15s,transform .1s}
+.sector-btn:hover{transform:translateY(-1px)}
+.sector-btn .sector-tag{font-size:10px;font-weight:700;letter-spacing:.08em;padding:3px 8px;border-radius:100px;margin-bottom:6px}
+
+.sector-btn-camareiras{border-color:#a8c4c7;background:#f3f7f8}
+.sector-btn-camareiras .sector-tag{background:#023441;color:#fff}
+.sector-btn-camareiras .sector-title{font-size:16px;font-weight:700;color:#023441}
+.sector-btn-camareiras .sector-desc{font-size:11px;color:#436167;margin-top:2px}
+.sector-btn-camareiras:hover{border-color:#023441;background:#e9f2f4}
+.sector-btn-camareiras.active{border-color:#023441;background:#e0edf0;box-shadow:0 0 0 3px #02344133}
+
+.sector-btn-geral{border-color:#dfcb9d;background:#faf7f0}
+.sector-btn-geral .sector-tag{background:#bc934b;color:#18313a}
+.sector-btn-geral .sector-title{font-size:16px;font-weight:700;color:#7e5e21}
+.sector-btn-geral .sector-desc{font-size:11px;color:#6b5a39;margin-top:2px}
+.sector-btn-geral:hover{border-color:#bc934b;background:#f6eedc}
+.sector-btn-geral.active{border-color:#bc934b;background:#f3e7cf;box-shadow:0 0 0 3px #bc934b40}
+
+.sector-submit-camareiras{background:#023441;color:#ffffff;border:1px solid #023441;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s}
+.sector-submit-camareiras:hover{background:#034b5c}
+
+.sector-submit-geral{background:#bc934b;color:#18313a;border:1px solid #a87f37;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s}
+.sector-submit-geral:hover{background:#cda45e}
 .danger-btn{background:#fff;color:#8c392c;border:1px solid #e2bab3;border-radius:8px;padding:10px 13px;min-height:40px;font-size:13px;font-weight:700}
 .danger-btn:hover{background:#fdf2f0;border-color:#8c392c}
 @media(max-width:720px){

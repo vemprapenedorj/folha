@@ -58,14 +58,17 @@ function updateLoginDeptUI() {
     btn.classList.toggle('active', isActive);
     btn.setAttribute('aria-selected', String(isActive));
   });
+  const loginBtn = $('#login-btn');
   if (selectedDept === 'camareiras') {
     $('#password-label').textContent = 'Senha de Camareiras (Governança)';
-    $('#login-btn').textContent = 'Entrar em Camareiras';
+    loginBtn.textContent = 'Entrar em Camareiras';
+    loginBtn.className = 'sector-submit-camareiras';
     $('#open-password-login').textContent = 'Alterar senha de Camareiras';
     $('#password').placeholder = 'Digite a senha de Camareiras';
   } else {
     $('#password-label').textContent = 'Senha da Recepção (Geral)';
-    $('#login-btn').textContent = 'Entrar na Recepção';
+    loginBtn.textContent = 'Entrar na Recepção';
+    loginBtn.className = 'sector-submit-geral';
     $('#open-password-login').textContent = 'Alterar senha da Recepção';
     $('#password').placeholder = 'Digite a senha da Recepção';
   }
