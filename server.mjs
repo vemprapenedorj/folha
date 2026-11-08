@@ -37,7 +37,7 @@ const defaultShiftsGeral = [
 
 const statuses = ['folga', 'ferias', 'atestado'];
 let db;
-let adminPasswords = { camareiras: 'camareiras', geral: '123456' };
+let adminPasswords = { camareiras: '123456', geral: '616263' };
 let adminPasswordHash;
 let isSinglePasswordFile = false;
 let writing = Promise.resolve();
@@ -507,7 +507,7 @@ if (!remoteMode) {
           isSinglePasswordFile = true;
         }
       } catch {
-        adminPasswords = { camareiras: 'camareiras', geral: '123456' };
+        adminPasswords = { camareiras: '123456', geral: '616263' };
         await writePasswords();
       }
     }
