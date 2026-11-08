@@ -5,12 +5,18 @@ const names = ['segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 
 const labels = { folga: 'FOLGA', ferias: 'FÉRIAS', atestado: 'ATESTADO' };
 const query = new URLSearchParams(location.search);
 const viewing = query.has('week');
+
+let currentDept = query.get('dept') || 'camareiras';
 let editor = false;
 let people = [];
 let shifts = [];
 let current = null;
 let dirty = false;
 let selected = startOfWeek(viewing ? query.get('week') : dateKey(new Date()));
+let availableDepts = [
+  { id: 'camareiras', name: 'Governança (Camareiras)', title: 'Escala de Camareiras', columnLabel: 'GOVERNANÇA' },
+  { id: 'geral', name: 'Recepção / Geral', title: 'Escala Geral', columnLabel: 'FUNCIONÁRIO' }
+];
 
 function fmt(key, options) { return new Intl.DateTimeFormat('pt-BR', options).format(parseDate(key)); }
 function notice(text, error = false) { const el = $('#message'); el.textContent = text; el.classList.toggle('error', error); }
@@ -20,8 +26,31 @@ async function api(path, options = {}) {
   if (!response.ok) throw new Error(value.error || 'Erro inesperado');
   return value;
 }
-function showWorkspace() { $('#login').hidden = true; $('#workspace').hidden = false; document.querySelectorAll('.editor-only').forEach(el => el.hidden = !editor); }
+function showWorkspace() {
+  $('#login').hidden = true;
+  $('#workspace').hidden = false;
+  document.querySelectorAll('.editor-only').forEach(el => el.hidden = !editor);
+}
+
+function updateDeptUI() {
+  document.querySelectorAll('.dept-pill').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.dept === currentDept);
+  });
+  if (currentDept === 'camareiras') {
+    $('#topbar-label').textContent = 'ESCALA DE CAMAREIRAS';
+    $('#app-title').textContent = 'Escala de Camareiras';
+    $('#footnote').textContent = 'Horários planejados · Governança / Camareiras. Turnos que atravessam a meia-noite terminam no dia seguinte.';
+    document.title = 'Escala de Camareiras | Hotel Titanic';
+  } else {
+    $('#topbar-label').textContent = 'ESCALA GERAL';
+    $('#app-title').textContent = 'Escala Geral';
+    $('#footnote').textContent = 'Horários planejados · Equipe Geral / Recepção. Turnos que atravessam a meia-noite terminam no dia seguinte.';
+    document.title = 'Escala Geral | Hotel Titanic';
+  }
+}
+
 function render() {
+  updateDeptUI();
   $('#calendar').value = selected;
   const selectedWeek = isoWeek(selected), thisWeek = isoWeek(dateKey(new Date()));
   const weekNumber = $('#week-number');
@@ -48,13 +77,24 @@ function render() {
   weekNumber.disabled = viewing;
   $('#week-year').disabled = viewing;
   $('#today').disabled = viewing;
+
   const thead = $('#schedule thead');
   const tbody = $('#schedule tbody');
   thead.replaceChildren(); tbody.replaceChildren();
   const head = document.createElement('tr');
-  const first = document.createElement('th'); first.textContent = 'FUNCIONÁRIO'; head.append(first);
-  names.forEach((name, day) => { const th = document.createElement('th'); th.append(document.createTextNode(name.toLocaleUpperCase('pt-BR'))); const span = document.createElement('span'); span.className = 'date'; span.textContent = fmt(addDays(selected, day), { day: '2-digit', month: '2-digit' }); th.append(span); head.append(th); });
+  const first = document.createElement('th');
+  first.textContent = currentDept === 'camareiras' ? 'GOVERNANÇA' : 'FUNCIONÁRIO';
+  head.append(first);
+  names.forEach((name, day) => {
+    const th = document.createElement('th');
+    th.append(document.createTextNode(name.toLocaleUpperCase('pt-BR')));
+    const span = document.createElement('span'); span.className = 'date';
+    span.textContent = fmt(addDays(selected, day), { day: '2-digit', month: '2-digit' });
+    th.append(span);
+    head.append(th);
+  });
   thead.append(head);
+
   people.forEach(person => {
     const row = document.createElement('tr');
     const th = document.createElement('th'); th.scope = 'row'; th.textContent = person.toLocaleUpperCase('pt-BR'); row.append(th);
@@ -64,51 +104,141 @@ function render() {
       if (editor) {
         const select = document.createElement('select');
         select.setAttribute('aria-label', `${person}, ${names[day]}, ${fmt(addDays(selected, day), { day: '2-digit', month: '2-digit' })}`);
-        [['', '— Selecionar —'], ...shifts.map(x => [x, x]), ...Object.entries(labels)].forEach(([key, label]) => { const opt = document.createElement('option'); opt.value = key; opt.textContent = label; select.append(opt); });
+        const optionsList = [
+          ['', '— Selecionar —'],
+          ...shifts.map(x => [x, x]),
+          ...Object.entries(labels)
+        ];
+        if (value && !shifts.includes(value) && !labels[value]) {
+          optionsList.splice(1, 0, [value, value]);
+        }
+        optionsList.forEach(([key, label]) => {
+          const opt = document.createElement('option');
+          opt.value = key;
+          opt.textContent = label;
+          select.append(opt);
+        });
         select.value = value;
-        select.addEventListener('change', () => { current.entries[person] ||= {}; if (select.value) current.entries[person][day] = select.value; else delete current.entries[person][day]; dirty = true; render(); notice('Alterações ainda não salvas.'); });
+        select.addEventListener('change', () => {
+          current.entries[person] ||= {};
+          if (select.value) current.entries[person][day] = select.value;
+          else delete current.entries[person][day];
+          dirty = true;
+          render();
+          notice('Alterações ainda não salvas.');
+        });
         td.append(select);
-      } else { const span = document.createElement('span'); span.textContent = labels[value] || value || '—'; td.append(span); }
+      } else {
+        const span = document.createElement('span');
+        span.textContent = labels[value] || value || '—';
+        td.append(span);
+      }
       row.append(td);
     });
     tbody.append(row);
   });
 }
+
 async function loadWeek() {
   try {
     if (editor) {
-      current = await api(`/api/week?week=${selected}`);
+      current = await api(`/api/week?week=${selected}&dept=${currentDept}`);
+      const dataInfo = await api(`/api/data?dept=${currentDept}`);
+      people = dataInfo.people;
+      shifts = dataInfo.shifts;
     } else {
-      const value = await api(`/api/public?week=${selected}`);
-      people = value.people; shifts = value.shifts; current = value;
+      const value = await api(`/api/public?week=${selected}&dept=${currentDept}`);
+      people = value.people;
+      shifts = value.shifts;
+      current = value;
     }
-    dirty = false; render(); notice(current.published && current.updatedAt ? `Atualizada em ${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(current.updatedAt))}.` : '');
+    dirty = false;
+    render();
+    notice(current.published && current.updatedAt ? `Atualizada em ${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(current.updatedAt))}.` : '');
   } catch (error) {
-    if (viewing) { current = { start: selected, published: false, entries: {} }; people = []; shifts = []; render(); notice(error.message, true); }
-    else notice(error.message, true);
+    if (viewing) {
+      current = { start: selected, published: false, entries: {} };
+      people = [];
+      shifts = [];
+      render();
+      notice(error.message, true);
+    } else {
+      notice(error.message, true);
+    }
   }
 }
+
 function showEditorWeek(data) {
   editor = true;
+  currentDept = data.dept || currentDept;
   people = data.people;
   shifts = data.shifts;
   current = data.week;
+  if (data.availableDepts) availableDepts = data.availableDepts;
   dirty = false;
   showWorkspace();
   render();
-  notice(current.published && current.updatedAt ? `Atualizada em ${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(current.updatedAt))}.` : '');
+  notice(current?.published && current?.updatedAt ? `Atualizada em ${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(current.updatedAt))}.` : '');
 }
+
+async function switchDept(newDept) {
+  if (newDept === currentDept) return;
+  if (dirty) {
+    if (!confirm('Existem alterações não salvas. Deseja trocar de setor mesmo assim?')) return;
+  }
+  currentDept = newDept;
+  const newUrl = new URL(location);
+  newUrl.searchParams.set('dept', currentDept);
+  history.replaceState(null, '', newUrl.toString());
+
+  try {
+    const data = await api(`/api/bootstrap?week=${selected}&dept=${currentDept}`);
+    if (data.editor) {
+      showEditorWeek(data);
+    } else {
+      editor = false;
+      showWorkspace();
+      await loadWeek();
+    }
+  } catch {
+    editor = false;
+    await loadWeek();
+  }
+}
+
 async function setup() {
-  if (viewing) { showWorkspace(); await loadWeek(); return; }
-  const data = await api(`/api/bootstrap?week=${selected}`);
-  if (!data.editor) { $('#login').hidden = false; return; }
+  document.querySelectorAll('.dept-pill').forEach(btn => {
+    btn.addEventListener('click', () => switchDept(btn.dataset.dept));
+  });
+
+  if (viewing) {
+    showWorkspace();
+    await loadWeek();
+    return;
+  }
+  const data = await api(`/api/bootstrap?week=${selected}&dept=${currentDept}`);
+  if (!data.editor) {
+    $('#login').hidden = false;
+    return;
+  }
   showEditorWeek(data);
 }
+
 $('#login-form').addEventListener('submit', async event => {
   event.preventDefault();
-  try { const data = await api(`/api/login?week=${selected}`, { method: 'POST', body: JSON.stringify({ password: $('#password').value }) }); $('#password').value = ''; $('#login-error').textContent = ''; showEditorWeek(data); }
-  catch (error) { $('#login-error').textContent = error.message; }
+  try {
+    const data = await api(`/api/login?week=${selected}`, {
+      method: 'POST',
+      body: JSON.stringify({ password: $('#password').value, dept: currentDept })
+    });
+    $('#password').value = '';
+    $('#login-error').textContent = '';
+    showEditorWeek(data);
+  } catch (error) {
+    $('#login-error').textContent = error.message;
+  }
 });
+
 $('#previous').addEventListener('click', () => { selected = addDays(selected, -7); loadWeek(); });
 $('#next').addEventListener('click', () => { selected = addDays(selected, 7); loadWeek(); });
 $('#today').addEventListener('click', () => { selected = startOfWeek(dateKey(new Date())); loadWeek(); });
@@ -120,30 +250,52 @@ $('#week-year').addEventListener('change', event => {
   const number = Math.min(Number($('#week-number').value), isoWeeksInYear(year));
   selected = isoWeekStart(year, number); loadWeek();
 });
+
 function openPasswordDialog() {
   if (dirty) return notice('Salve as alterações da escala antes de trocar a senha.', true);
-  $('#password-form').reset(); $('#password-error').textContent = ''; $('#password-dialog').showModal();
+  $('#password-form').reset();
+  $('#password-error').textContent = '';
+  const deptName = currentDept === 'camareiras' ? 'Governança (Camareiras)' : 'Recepção / Geral';
+  $('#password-desc').textContent = `Alterando senha do setor: ${deptName}`;
+  $('#password-dialog').showModal();
 }
 $('#open-password-login').addEventListener('click', openPasswordDialog);
 $('#open-password-editor').addEventListener('click', openPasswordDialog);
 $('#close-password').addEventListener('click', () => $('#password-dialog').close());
 $('#cancel-password').addEventListener('click', () => $('#password-dialog').close());
+
 $('#password-form').addEventListener('submit', async event => {
   event.preventDefault();
   const currentPassword = $('#current-password').value, newPassword = $('#new-password').value;
   if (!/^[\p{L}\p{N}]{6,12}$/u.test(newPassword)) return $('#password-error').textContent = 'Use de 6 a 12 letras ou números, sem símbolos.';
   if (newPassword !== $('#confirm-password').value) return $('#password-error').textContent = 'A confirmação não corresponde à nova senha.';
   try {
-    await api('/api/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+    await api('/api/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword, dept: currentDept })
+    });
     $('#password-dialog').close();
     alert('Senha alterada. Entre novamente com a nova senha.');
     location.reload();
-  } catch (error) { $('#password-error').textContent = error.message; }
+  } catch (error) {
+    $('#password-error').textContent = error.message;
+  }
 });
+
 $('#save').addEventListener('click', async () => {
-  try { current = await api('/api/week', { method: 'PUT', body: JSON.stringify({ start: selected, entries: current.entries }) }); dirty = false; render(); notice('Escala salva.'); }
-  catch (error) { notice(error.message, true); }
+  try {
+    current = await api('/api/week', {
+      method: 'PUT',
+      body: JSON.stringify({ start: selected, entries: current.entries, dept: currentDept })
+    });
+    dirty = false;
+    render();
+    notice('Escala salva.');
+  } catch (error) {
+    notice(error.message, true);
+  }
 });
+
 function updateCopyRange() {
   const source = $('#copy-source').value;
   const start = source ? startOfWeek(source) : null;
@@ -167,41 +319,98 @@ $('#copy-form').addEventListener('submit', async event => {
   if (startOfWeek(source) === selected) return $('#copy-error').textContent = 'Escolha uma semana diferente da semana atual.';
   const mode = $('#copy-form input[name="copy-mode"]:checked').value;
   try {
-    const result = await api('/api/copy-week', { method: 'POST', body: JSON.stringify({ source, target: selected, mode }) });
-    current = result; dirty = false; render(); $('#copy-dialog').close();
+    const result = await api('/api/copy-week', {
+      method: 'POST',
+      body: JSON.stringify({ source, target: selected, mode, dept: currentDept })
+    });
+    current = result;
+    dirty = false;
+    render();
+    $('#copy-dialog').close();
     notice(result.copiedCount ? `${result.copiedCount} marcações copiadas. ${result.published ? 'O link publicado já mostra a atualização.' : 'Revise a escala antes de publicar.'}` : 'Não havia dias vazios para preencher; a escala atual foi mantida.');
   } catch (error) {
-    $('#copy-error').textContent = error.message === 'Não encontrado'
-      ? 'O servidor está usando a versão anterior do app. Feche a janela do servidor, abra Iniciar Escala.cmd novamente e atualize esta página.'
-      : error.message;
+    $('#copy-error').textContent = error.message;
   }
 });
+
 $('#publish').addEventListener('click', async () => {
-  try { current = await api('/api/week', { method: 'PUT', body: JSON.stringify({ start: selected, entries: current.entries }) }); current = await api('/api/publish', { method: 'POST', body: JSON.stringify({ start: selected }) }); dirty = false; render(); notice('Semana publicada. O link mostra esta versão.'); }
-  catch (error) { notice(error.message, true); }
+  try {
+    current = await api('/api/week', {
+      method: 'PUT',
+      body: JSON.stringify({ start: selected, entries: current.entries, dept: currentDept })
+    });
+    current = await api('/api/publish', {
+      method: 'POST',
+      body: JSON.stringify({ start: selected, dept: currentDept })
+    });
+    dirty = false;
+    render();
+    notice('Semana publicada. O link mostra esta versão.');
+  } catch (error) {
+    notice(error.message, true);
+  }
 });
+
 $('#share').addEventListener('click', async () => {
-  const link = `${location.origin}/?week=${selected}`;
-  try { await navigator.clipboard.writeText(link); notice('Link de visualização copiado.'); }
-  catch { notice(`Copie o link: ${link}`); }
+  const link = `${location.origin}/?dept=${currentDept}&week=${selected}`;
+  try {
+    await navigator.clipboard.writeText(link);
+    notice('Link de visualização copiado.');
+  } catch {
+    notice(`Copie o link: ${link}`);
+  }
 });
-$('#logout').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }); location.reload(); });
-$('#manage').addEventListener('click', () => { $('#people-list').value = people.join('\n'); $('#shifts-list').value = shifts.join('\n'); $('#manage-dialog').showModal(); });
+
+$('#logout').addEventListener('click', async () => {
+  await api('/api/logout', { method: 'POST' });
+  location.reload();
+});
+
+$('#manage').addEventListener('click', () => {
+  $('#people-list').value = people.join('\n');
+  $('#shifts-list').value = shifts.join('\n');
+  $('#manage-dialog').showModal();
+});
 $('#manage-dialog').addEventListener('close', async () => {
   if ($('#manage-dialog').returnValue !== 'save') return;
   const nextPeople = $('#people-list').value.split('\n').map(x => x.trim()).filter(Boolean);
   const nextShifts = $('#shifts-list').value.split('\n').map(x => x.trim()).filter(Boolean);
-  try { const data = await api('/api/data', { method: 'PUT', body: JSON.stringify({ people: nextPeople, shifts: nextShifts }) }); people = data.people; shifts = data.shifts; render(); notice('Listas atualizadas.'); }
-  catch (error) { notice(error.message, true); }
+  try {
+    const data = await api('/api/data', {
+      method: 'PUT',
+      body: JSON.stringify({ people: nextPeople, shifts: nextShifts, dept: currentDept })
+    });
+    people = data.people;
+    shifts = data.shifts;
+    render();
+    notice('Listas atualizadas.');
+  } catch (error) {
+    notice(error.message, true);
+  }
 });
+
 $('#pdf').addEventListener('click', () => window.print());
+
 $('#png').addEventListener('click', () => {
   const scale = 2, cw = 178, nw = 230, rh = 50, hh = 136, width = nw + cw * 7, height = hh + rh * people.length + 52;
   const canvas = document.createElement('canvas'); canvas.width = width * scale; canvas.height = height * scale;
   const ctx = canvas.getContext('2d'); ctx.scale(scale, scale); ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = '#023441'; ctx.fillRect(0, 0, width, hh); ctx.fillStyle = '#ffffff'; ctx.font = 'bold 24px Georgia'; ctx.fillText('HOTEL TITANIC', 20, 34); ctx.font = '14px Arial'; ctx.fillText(`Escala semanal · ${$('#range').textContent}`, 20, 66);
-  names.forEach((name, day) => { const x = nw + cw * day + 9; ctx.font = 'bold 14px Arial'; ctx.fillText(name.toLocaleUpperCase('pt-BR'), x, 102); ctx.font = 'bold 14px Arial'; ctx.fillText(fmt(addDays(selected, day), { day: '2-digit', month: '2-digit' }), x, 123); });
+  ctx.fillStyle = '#023441'; ctx.fillRect(0, 0, width, hh); ctx.fillStyle = '#ffffff';
+
+  if (currentDept === 'camareiras') {
+    ctx.font = 'bold 24px Georgia'; ctx.fillText('HOTEL TITANIC · GOVERNANÇA', 20, 34);
+    ctx.font = '14px Arial'; ctx.fillText(`Escala de Camareiras · ${$('#range').textContent}`, 20, 66);
+  } else {
+    ctx.font = 'bold 24px Georgia'; ctx.fillText('HOTEL TITANIC', 20, 34);
+    ctx.font = '14px Arial'; ctx.fillText(`Escala Geral · ${$('#range').textContent}`, 20, 66);
+  }
+
+  names.forEach((name, day) => {
+    const x = nw + cw * day + 9;
+    ctx.font = 'bold 14px Arial'; ctx.fillText(name.toLocaleUpperCase('pt-BR'), x, 102);
+    ctx.font = 'bold 14px Arial'; ctx.fillText(fmt(addDays(selected, day), { day: '2-digit', month: '2-digit' }), x, 123);
+  });
   people.forEach((person, r) => {
     const y = hh + r * rh;
     ctx.fillStyle = '#f5f6f4'; ctx.fillRect(0, y, nw, rh);
@@ -216,8 +425,16 @@ $('#png').addEventListener('click', () => {
   ctx.strokeStyle = '#a5b8aa'; ctx.lineWidth = 1;
   for (let r = 0; r <= people.length; r++) { const y = hh + r * rh + .5; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
   for (let d = 0; d <= 7; d++) { const x = nw + d * cw + .5; ctx.beginPath(); ctx.moveTo(x, hh); ctx.lineTo(x, hh + rh * people.length); ctx.stroke(); }
-  ctx.fillStyle = '#596c71'; ctx.font = '12px Arial'; ctx.fillText('Horários planejados · Hotel Titanic Penedo', 15, height - 22);
-  const link = document.createElement('a'); link.download = `escala-${selected}.png`; link.href = canvas.toDataURL('image/png'); link.click(); notice('Imagem baixada.');
+  ctx.fillStyle = '#596c71'; ctx.font = '12px Arial';
+  const foot = currentDept === 'camareiras' ? 'Horários planejados · Governança · Hotel Titanic Penedo' : 'Horários planejados · Equipe Geral · Hotel Titanic Penedo';
+  ctx.fillText(foot, 15, height - 22);
+
+  const link = document.createElement('a');
+  link.download = `escala-${currentDept}-${selected}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  notice('Imagem baixada.');
 });
+
 if (location.protocol === 'file:') $('#file-warning').hidden = false;
 else setup().catch(error => { $('#login').hidden = false; $('#login-error').textContent = error.message; });
