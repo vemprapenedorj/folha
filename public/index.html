@@ -11,36 +11,42 @@
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand"><span class="brand-small">HOTEL</span><strong>TITANIC</strong><span class="brand-small">PENEDO</span></div>
-      <nav class="dept-nav" id="dept-nav" aria-label="Seletor de setor">
-        <button type="button" class="dept-pill active" data-dept="camareiras">Governança (Camareiras)</button>
-        <button type="button" class="dept-pill" data-dept="geral">Recepção / Geral</button>
-      </nav>
-      <span class="topbar-label" id="topbar-label">ESCALA DE CAMAREIRAS</span>
+      <div class="topbar-right">
+        <span class="topbar-label" id="topbar-label">ESCALA SEMANAL</span>
+        <button id="topbar-logout" class="topbar-logout-btn editor-only" hidden type="button">Sair da escala</button>
+      </div>
     </div>
   </header>
   <main class="shell">
     <section id="file-warning" class="login panel" hidden><h1>Abra pelo iniciador</h1><p>Para usar a escala, abra a pasta do projeto e dê dois cliques em <strong>Iniciar Escala.cmd</strong>. Uma janela mostrará a senha do responsável e o app abrirá no navegador.</p></section>
+    
     <section id="login" class="login panel" hidden>
       <h1>Acesso do responsável</h1>
-      <p id="login-intro">Digite a senha do seu setor (<strong>Governança</strong> ou <strong>Geral</strong>) para entrar.</p>
-      <form id="login-form">
-        <label for="password">Senha</label>
-        <input id="password" type="password" required autocomplete="current-password" placeholder="Digite a senha">
-        <button class="primary">Entrar</button>
-      </form>
-      <div class="login-hint">
-        <strong>Acesso inicial por setor:</strong><br>
-        • Governança: <code>camareiras</code><br>
-        • Recepção / Geral: <code>123456</code>
+      <p>Selecione a escala que deseja gerenciar:</p>
+      <div class="login-sector-picker" role="tablist">
+        <button type="button" class="sector-btn active" data-dept="camareiras" role="tab" aria-selected="true">
+          <span class="sector-title">Camareiras</span>
+          <span class="sector-desc">Governança</span>
+        </button>
+        <button type="button" class="sector-btn" data-dept="geral" role="tab" aria-selected="false">
+          <span class="sector-title">Recepção</span>
+          <span class="sector-desc">Equipe Geral</span>
+        </button>
       </div>
-      <button id="open-password-login" class="quiet password-link" type="button">Alterar senha</button>
+      <form id="login-form">
+        <label for="password" id="password-label">Senha de Camareiras</label>
+        <input id="password" type="password" required autocomplete="current-password" placeholder="Digite a senha">
+        <button class="primary" id="login-btn">Entrar em Camareiras</button>
+      </form>
+      <button id="open-password-login" class="quiet password-link" type="button">Alterar senha deste setor</button>
       <p id="login-error" class="error" role="alert"></p>
     </section>
+
     <section id="workspace" hidden>
       <div class="heading">
         <div>
           <p class="eyebrow" id="eyebrow">HOTEL TITANIC · PENEDO</p>
-          <h1 id="app-title">Escala de Camareiras</h1>
+          <h1 id="app-title">Escala Semanal</h1>
           <p id="range" class="week-highlight"></p>
         </div>
         <div id="status" class="status"></div>
@@ -62,13 +68,14 @@
           <button id="png" class="quiet">Baixar imagem</button>
           <button id="pdf" class="quiet">Exportar PDF</button>
           <button id="open-password-editor" class="quiet editor-only">Alterar senha</button>
-          <button id="logout" class="quiet editor-only">Sair</button>
+          <button id="logout" class="danger-btn editor-only">Sair</button>
         </div>
       </div>
       <p id="message" class="message" role="status" aria-live="polite"></p>
       <div class="grid-wrap panel"><table id="schedule"><thead></thead><tbody></tbody></table></div>
-      <p class="footnote" id="footnote">Horários planejados · Governança / Camareiras. Turnos que atravessam a meia-noite terminam no dia seguinte.</p>
+      <p class="footnote" id="footnote">Horários planejados. Turnos que atravessam a meia-noite terminam no dia seguinte.</p>
     </section>
+
     <dialog id="copy-dialog"><form id="copy-form"><div class="dialog-head"><h2>Copiar escala</h2><button type="button" id="close-copy" aria-label="Fechar" class="icon-button">×</button></div><p>A cópia será feita para a semana exibida: <strong id="copy-target"></strong>.</p><label for="copy-source">Escolha uma data da semana de origem</label><input id="copy-source" type="date" required><p id="copy-source-range" class="subtle"></p><fieldset class="copy-options"><legend>Como copiar?</legend><label><input type="radio" name="copy-mode" value="fill" checked> Preencher somente os dias vazios; manter o que já foi cadastrado.</label><label><input type="radio" name="copy-mode" value="replace"> Substituir toda a escala desta semana pela semana escolhida.</label></fieldset><p id="copy-error" class="error" role="alert"></p><div class="dialog-actions"><button type="button" id="cancel-copy" class="quiet">Cancelar</button><button type="submit" class="primary">Copiar escala</button></div></form></dialog>
     <dialog id="password-dialog"><form id="password-form"><div class="dialog-head"><h2>Alterar senha</h2><button type="button" id="close-password" aria-label="Fechar" class="icon-button">×</button></div><p id="password-desc">Informe a senha atual para cadastrar uma nova senha.</p><label for="current-password">Senha atual</label><input id="current-password" type="password" required autocomplete="current-password"><label for="new-password">Nova senha</label><input id="new-password" type="password" required minlength="6" maxlength="12" autocomplete="new-password"><p class="password-hint">De 6 a 12 letras ou números, sem símbolos.</p><label for="confirm-password">Confirme a nova senha</label><input id="confirm-password" type="password" required minlength="6" maxlength="12" autocomplete="new-password"><p id="password-error" class="error" role="alert"></p><div class="dialog-actions"><button type="button" id="cancel-password" class="quiet">Cancelar</button><button type="submit" class="primary">Salvar nova senha</button></div></form></dialog>
     <dialog id="manage-dialog"><form method="dialog"><div class="dialog-head"><h2>Funcionários e horários</h2><button value="cancel" aria-label="Fechar" class="icon-button">×</button></div><p>Informe um item por linha. A ordem define a exibição da escala.</p><label for="people-list">Equipe do setor</label><textarea id="people-list" rows="10"></textarea><label for="shifts-list">Horários padrão</label><textarea id="shifts-list" rows="8"></textarea><div class="dialog-actions"><button value="cancel" class="quiet">Cancelar</button><button id="save-data" value="save" class="primary">Salvar listas</button></div></form></dialog>

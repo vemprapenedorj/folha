@@ -7,16 +7,13 @@ const query = new URLSearchParams(location.search);
 const viewing = query.has('week');
 
 let currentDept = query.get('dept') || 'camareiras';
+let selectedDept = currentDept;
 let editor = false;
 let people = [];
 let shifts = [];
 let current = null;
 let dirty = false;
 let selected = startOfWeek(viewing ? query.get('week') : dateKey(new Date()));
-let availableDepts = [
-  { id: 'camareiras', name: 'Governança (Camareiras)', title: 'Escala de Camareiras', columnLabel: 'GOVERNANÇA' },
-  { id: 'geral', name: 'Recepção / Geral', title: 'Escala Geral', columnLabel: 'FUNCIONÁRIO' }
-];
 
 function fmt(key, options) { return new Intl.DateTimeFormat('pt-BR', options).format(parseDate(key)); }
 function notice(text, error = false) { const el = $('#message'); el.textContent = text; el.classList.toggle('error', error); }
@@ -26,26 +23,51 @@ async function api(path, options = {}) {
   if (!response.ok) throw new Error(value.error || 'Erro inesperado');
   return value;
 }
+
 function showWorkspace() {
   $('#login').hidden = true;
   $('#workspace').hidden = false;
   document.querySelectorAll('.editor-only').forEach(el => el.hidden = !editor);
+  $('#topbar-logout').hidden = !editor;
+}
+
+function showLogin() {
+  $('#workspace').hidden = true;
+  $('#login').hidden = false;
+  $('#topbar-logout').hidden = true;
+  updateLoginDeptUI();
 }
 
 function updateDeptUI() {
-  document.querySelectorAll('.dept-pill').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.dept === currentDept);
-  });
   if (currentDept === 'camareiras') {
     $('#topbar-label').textContent = 'ESCALA DE CAMAREIRAS';
     $('#app-title').textContent = 'Escala de Camareiras';
     $('#footnote').textContent = 'Horários planejados · Governança / Camareiras. Turnos que atravessam a meia-noite terminam no dia seguinte.';
     document.title = 'Escala de Camareiras | Hotel Titanic';
   } else {
-    $('#topbar-label').textContent = 'ESCALA GERAL';
-    $('#app-title').textContent = 'Escala Geral';
-    $('#footnote').textContent = 'Horários planejados · Equipe Geral / Recepção. Turnos que atravessam a meia-noite terminam no dia seguinte.';
+    $('#topbar-label').textContent = 'ESCALA DA RECEPÇÃO';
+    $('#app-title').textContent = 'Escala da Recepção / Geral';
+    $('#footnote').textContent = 'Horários planejados · Equipe da Recepção / Geral. Turnos que atravessam a meia-noite terminam no dia seguinte.';
     document.title = 'Escala Geral | Hotel Titanic';
+  }
+}
+
+function updateLoginDeptUI() {
+  document.querySelectorAll('.sector-btn').forEach(btn => {
+    const isActive = btn.dataset.dept === selectedDept;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', String(isActive));
+  });
+  if (selectedDept === 'camareiras') {
+    $('#password-label').textContent = 'Senha de Camareiras (Governança)';
+    $('#login-btn').textContent = 'Entrar em Camareiras';
+    $('#open-password-login').textContent = 'Alterar senha de Camareiras';
+    $('#password').placeholder = 'Digite a senha de Camareiras';
+  } else {
+    $('#password-label').textContent = 'Senha da Recepção (Geral)';
+    $('#login-btn').textContent = 'Entrar na Recepção';
+    $('#open-password-login').textContent = 'Alterar senha da Recepção';
+    $('#password').placeholder = 'Digite a senha da Recepção';
   }
 }
 
@@ -171,45 +193,38 @@ async function loadWeek() {
 function showEditorWeek(data) {
   editor = true;
   currentDept = data.dept || currentDept;
+  selectedDept = currentDept;
   people = data.people;
   shifts = data.shifts;
   current = data.week;
-  if (data.availableDepts) availableDepts = data.availableDepts;
   dirty = false;
   showWorkspace();
   render();
   notice(current?.published && current?.updatedAt ? `Atualizada em ${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(current.updatedAt))}.` : '');
 }
 
-async function switchDept(newDept) {
-  if (newDept === currentDept) return;
+async function logout() {
   if (dirty) {
-    if (!confirm('Existem alterações não salvas. Deseja trocar de setor mesmo assim?')) return;
+    if (!confirm('Você tem alterações não salvas. Deseja sair mesmo assim?')) return;
   }
-  currentDept = newDept;
-  const newUrl = new URL(location);
-  newUrl.searchParams.set('dept', currentDept);
-  history.replaceState(null, '', newUrl.toString());
-
   try {
-    const data = await api(`/api/bootstrap?week=${selected}&dept=${currentDept}`);
-    if (data.editor) {
-      showEditorWeek(data);
-    } else {
-      editor = false;
-      showWorkspace();
-      await loadWeek();
-    }
-  } catch {
-    editor = false;
-    await loadWeek();
-  }
+    await api('/api/logout', { method: 'POST' });
+  } catch {}
+  editor = false;
+  dirty = false;
+  showLogin();
 }
 
 async function setup() {
-  document.querySelectorAll('.dept-pill').forEach(btn => {
-    btn.addEventListener('click', () => switchDept(btn.dataset.dept));
+  document.querySelectorAll('.sector-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedDept = btn.dataset.dept;
+      updateLoginDeptUI();
+    });
   });
+
+  $('#logout').addEventListener('click', logout);
+  $('#topbar-logout').addEventListener('click', logout);
 
   if (viewing) {
     showWorkspace();
@@ -218,7 +233,7 @@ async function setup() {
   }
   const data = await api(`/api/bootstrap?week=${selected}&dept=${currentDept}`);
   if (!data.editor) {
-    $('#login').hidden = false;
+    showLogin();
     return;
   }
   showEditorWeek(data);
@@ -229,7 +244,7 @@ $('#login-form').addEventListener('submit', async event => {
   try {
     const data = await api(`/api/login?week=${selected}`, {
       method: 'POST',
-      body: JSON.stringify({ password: $('#password').value, dept: currentDept })
+      body: JSON.stringify({ password: $('#password').value, dept: selectedDept })
     });
     $('#password').value = '';
     $('#login-error').textContent = '';
@@ -255,8 +270,9 @@ function openPasswordDialog() {
   if (dirty) return notice('Salve as alterações da escala antes de trocar a senha.', true);
   $('#password-form').reset();
   $('#password-error').textContent = '';
-  const deptName = currentDept === 'camareiras' ? 'Governança (Camareiras)' : 'Recepção / Geral';
-  $('#password-desc').textContent = `Alterando senha do setor: ${deptName}`;
+  const targetDept = editor ? currentDept : selectedDept;
+  const deptName = targetDept === 'camareiras' ? 'Camareiras (Governança)' : 'Recepção (Geral)';
+  $('#password-desc').textContent = `Alterando a senha do setor: ${deptName}`;
   $('#password-dialog').showModal();
 }
 $('#open-password-login').addEventListener('click', openPasswordDialog);
@@ -269,13 +285,14 @@ $('#password-form').addEventListener('submit', async event => {
   const currentPassword = $('#current-password').value, newPassword = $('#new-password').value;
   if (!/^[\p{L}\p{N}]{6,12}$/u.test(newPassword)) return $('#password-error').textContent = 'Use de 6 a 12 letras ou números, sem símbolos.';
   if (newPassword !== $('#confirm-password').value) return $('#password-error').textContent = 'A confirmação não corresponde à nova senha.';
+  const targetDept = editor ? currentDept : selectedDept;
   try {
     await api('/api/change-password', {
       method: 'POST',
-      body: JSON.stringify({ currentPassword, newPassword, dept: currentDept })
+      body: JSON.stringify({ currentPassword, newPassword, dept: targetDept })
     });
     $('#password-dialog').close();
-    alert('Senha alterada. Entre novamente com a nova senha.');
+    alert('Senha alterada com sucesso. Entre novamente com a nova senha.');
     location.reload();
   } catch (error) {
     $('#password-error').textContent = error.message;
@@ -361,11 +378,6 @@ $('#share').addEventListener('click', async () => {
   }
 });
 
-$('#logout').addEventListener('click', async () => {
-  await api('/api/logout', { method: 'POST' });
-  location.reload();
-});
-
 $('#manage').addEventListener('click', () => {
   $('#people-list').value = people.join('\n');
   $('#shifts-list').value = shifts.join('\n');
@@ -403,7 +415,7 @@ $('#png').addEventListener('click', () => {
     ctx.font = '14px Arial'; ctx.fillText(`Escala de Camareiras · ${$('#range').textContent}`, 20, 66);
   } else {
     ctx.font = 'bold 24px Georgia'; ctx.fillText('HOTEL TITANIC', 20, 34);
-    ctx.font = '14px Arial'; ctx.fillText(`Escala Geral · ${$('#range').textContent}`, 20, 66);
+    ctx.font = '14px Arial'; ctx.fillText(`Escala da Recepção · ${$('#range').textContent}`, 20, 66);
   }
 
   names.forEach((name, day) => {
@@ -426,7 +438,7 @@ $('#png').addEventListener('click', () => {
   for (let r = 0; r <= people.length; r++) { const y = hh + r * rh + .5; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
   for (let d = 0; d <= 7; d++) { const x = nw + d * cw + .5; ctx.beginPath(); ctx.moveTo(x, hh); ctx.lineTo(x, hh + rh * people.length); ctx.stroke(); }
   ctx.fillStyle = '#596c71'; ctx.font = '12px Arial';
-  const foot = currentDept === 'camareiras' ? 'Horários planejados · Governança · Hotel Titanic Penedo' : 'Horários planejados · Equipe Geral · Hotel Titanic Penedo';
+  const foot = currentDept === 'camareiras' ? 'Horários planejados · Governança · Hotel Titanic Penedo' : 'Horários planejados · Recepção · Hotel Titanic Penedo';
   ctx.fillText(foot, 15, height - 22);
 
   const link = document.createElement('a');

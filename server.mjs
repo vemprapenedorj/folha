@@ -135,53 +135,40 @@ function safeEqual(a, b) {
   return timingSafeEqual(left, right);
 }
 
-function findMatchingDeptsLocal(password) {
-  const matched = [];
-  for (const [dept, pass] of Object.entries(adminPasswords)) {
-    if (safeEqual(password, pass)) matched.push(dept);
-  }
-  return matched;
+function verifyDeptPasswordLocal(dept, password) {
+  const expected = adminPasswords[dept];
+  return safeEqual(password, expected);
 }
 
-function findMatchingDeptsRemote(password) {
+function verifyDeptPasswordRemote(dept, password) {
   const hash = scryptSync(password, 'escala-hotel-titanic', 32);
-  const matched = [];
   if (typeof adminPasswordHash === 'object' && adminPasswordHash !== null) {
-    for (const [dept, h] of Object.entries(adminPasswordHash)) {
-      const stored = Buffer.from(h, 'hex');
-      if (stored.length === hash.length && timingSafeEqual(hash, stored)) matched.push(dept);
-    }
-  } else if (typeof adminPasswordHash === 'string') {
-    const stored = Buffer.from(adminPasswordHash, 'hex');
-    if (stored.length === hash.length && timingSafeEqual(hash, stored)) {
-      matched.push('camareiras', 'geral');
-    }
+    const storedHash = adminPasswordHash[dept] || adminPasswordHash.camareiras || adminPasswordHash.geral;
+    if (!storedHash) return false;
+    const stored = Buffer.from(storedHash, 'hex');
+    return stored.length === hash.length && timingSafeEqual(hash, stored);
   }
-  return matched;
+  if (typeof adminPasswordHash === 'string') {
+    const stored = Buffer.from(adminPasswordHash, 'hex');
+    return stored.length === hash.length && timingSafeEqual(hash, stored);
+  }
+  return false;
 }
 
-function sessionSignature(expiry, scope = 'all') {
+function sessionSignature(expiry) {
   const hashStr = typeof adminPasswordHash === 'object' ? JSON.stringify(adminPasswordHash) : String(adminPasswordHash);
-  return createHmac('sha256', process.env.ESCALA_STORE_SECRET).update(`${expiry}:${scope}:${hashStr}`).digest('hex');
+  return createHmac('sha256', process.env.ESCALA_STORE_SECRET).update(`${expiry}:${hashStr}`).digest('hex');
 }
 
 function authorized(req, dept) {
   if (remoteMode) {
-    const match = /(?:^|; )escala_session=([a-f0-9]+)(?:;|$)/.exec(req.headers.cookie || '');
+    const match = /(?:^|; )escala_session=([a-f0-9]{76})(?:;|$)/.exec(req.headers.cookie || '');
     if (!match) return false;
-    const token = match[1];
-    const expiry = token.slice(0, 12);
+    const expiry = match[1].slice(0, 12);
     if (parseInt(expiry, 16) <= Date.now()) return false;
-    const received = Buffer.from(token.slice(12), 'hex');
-    const expectedAll = Buffer.from(sessionSignature(expiry, 'all'), 'hex');
-    if (received.length === expectedAll.length && timingSafeEqual(received, expectedAll)) return true;
-    if (dept) {
-      const expectedDept = Buffer.from(sessionSignature(expiry, dept), 'hex');
-      if (received.length === expectedDept.length && timingSafeEqual(received, expectedDept)) return true;
-    }
-    const oldExpected = Buffer.from(createHmac('sha256', process.env.ESCALA_STORE_SECRET).update(`${expiry}:${adminPasswordHash}`).digest('hex'), 'hex');
-    if (received.length === oldExpected.length && timingSafeEqual(received, oldExpected)) return true;
-    return false;
+    const received = Buffer.from(match[1].slice(12), 'hex');
+    const expected = Buffer.from(sessionSignature(expiry), 'hex');
+    return timingSafeEqual(received, expected);
   }
   const match = /(?:^|; )escala_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || '');
   const data = match && sessions.get(match[1]);
@@ -267,21 +254,21 @@ async function handler(req, res) {
     if (path === '/api/login' && req.method === 'POST') {
       const { password, dept: requestedDept } = await bodyJson(req);
       if (typeof password !== 'string') return send(res, 400, { error: 'Senha inválida' });
-      const matching = remoteMode ? findMatchingDeptsRemote(password) : findMatchingDeptsLocal(password);
-      if (matching.length === 0) return send(res, 401, { error: 'Senha incorreta' });
-      const targetDept = (requestedDept && matching.includes(requestedDept)) ? requestedDept : matching[0];
+      const targetDept = resolveDeptId(requestedDept || url.searchParams.get('dept'));
+      const isValid = remoteMode
+        ? verifyDeptPasswordRemote(targetDept, password)
+        : verifyDeptPasswordLocal(targetDept, password);
+
+      if (!isValid) return send(res, 401, { error: 'Senha incorreta para a escala selecionada.' });
+
       const token = remoteMode
-        ? (() => { const expiry = (Date.now() + 7 * 86400_000).toString(16).padStart(12, '0'); return expiry + sessionSignature(expiry, matching.length > 1 ? 'all' : targetDept); })()
+        ? (() => { const expiry = (Date.now() + 7 * 86400_000).toString(16).padStart(12, '0'); return expiry + sessionSignature(expiry); })()
         : randomBytes(32).toString('hex');
+
       if (!remoteMode) {
-        const existingToken = /(?:^|; )escala_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || '')?.[1];
-        if (existingToken && sessions.has(existingToken)) {
-          const sess = sessions.get(existingToken);
-          sess.depts = [...new Set([...sess.depts, ...matching])];
-        } else {
-          sessions.set(token, { expiry: Date.now() + 7 * 86400_000, depts: matching });
-        }
+        sessions.set(token, { expiry: Date.now() + 7 * 86400_000, depts: [targetDept] });
       }
+
       const initialWeek = weekStart(url.searchParams.get('week'));
       const deptObj = getDept(targetDept);
       const payload = {
@@ -291,13 +278,6 @@ async function handler(req, res) {
         deptName: deptObj.name,
         deptTitle: deptObj.title,
         columnLabel: deptObj.columnLabel,
-        availableDepts: Object.entries(db.departments).map(([id, d]) => ({
-          id,
-          name: d.name,
-          title: d.title,
-          columnLabel: d.columnLabel,
-          authorized: authorized(req, id) || matching.includes(id)
-        })),
         people: deptObj.people,
         shifts: deptObj.shifts,
         week: initialWeek ? schedule(targetDept, initialWeek) : null
@@ -307,21 +287,15 @@ async function handler(req, res) {
 
     if (path === '/api/change-password' && req.method === 'POST') {
       if (!remoteMode && process.env.ADMIN_PASSWORD) return send(res, 409, { error: 'A senha deste servidor é definida no ambiente. Altere ADMIN_PASSWORD na configuração do servidor.' });
-      const { currentPassword, newPassword, dept } = await bodyJson(req);
+      const { currentPassword, newPassword, dept: requestedDept } = await bodyJson(req);
       if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !/^[\p{L}\p{N}]{6,12}$/u.test(newPassword)) return send(res, 400, { error: 'A nova senha deve ter de 6 a 12 caracteres, usando somente letras e números.' });
 
-      let targetDept = dept;
-      if (!targetDept) {
-        const matching = remoteMode ? findMatchingDeptsRemote(currentPassword) : findMatchingDeptsLocal(currentPassword);
-        if (matching.length === 0) return send(res, 401, { error: 'Senha atual incorreta.' });
-        targetDept = matching[0];
-      } else {
-        const valid = remoteMode
-          ? findMatchingDeptsRemote(currentPassword).includes(targetDept)
-          : safeEqual(currentPassword, adminPasswords[targetDept]);
-        if (!valid) return send(res, 401, { error: 'Senha atual incorreta.' });
-      }
+      const targetDept = resolveDeptId(requestedDept || url.searchParams.get('dept'));
+      const isValid = remoteMode
+        ? verifyDeptPasswordRemote(targetDept, currentPassword)
+        : verifyDeptPasswordLocal(targetDept, currentPassword);
 
+      if (!isValid) return send(res, 401, { error: 'Senha atual incorreta.' });
       if (currentPassword === newPassword) return send(res, 400, { error: 'Escolha uma senha diferente da atual.' });
 
       if (remoteMode) {
@@ -346,28 +320,21 @@ async function handler(req, res) {
     }
 
     if (path === '/api/logout' && req.method === 'POST') {
-      const match = /escala_session=([a-f0-9]{64})/.exec(req.headers.cookie || '');
+      const match = /escala_session=([a-f0-9]+)/.exec(req.headers.cookie || '');
       if (match && !remoteMode) sessions.delete(match[1]);
       return send(res, 200, { ok: true }, { 'Set-Cookie': 'escala_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0' });
     }
 
     if (path === '/api/me' && req.method === 'GET') {
       const targetDept = resolveDeptId(url.searchParams.get('dept'));
-      return send(res, 200, { editor: authorized(req, targetDept) });
+      return send(res, 200, { editor: authorized(req, targetDept), dept: targetDept });
     }
 
     if (path === '/api/bootstrap' && req.method === 'GET') {
       const targetDept = resolveDeptId(url.searchParams.get('dept'));
       const isEd = authorized(req, targetDept);
       const deptObj = getDept(targetDept);
-      const availableDepts = Object.entries(db.departments).map(([id, d]) => ({
-        id,
-        name: d.name,
-        title: d.title,
-        columnLabel: d.columnLabel,
-        authorized: authorized(req, id)
-      }));
-      if (!isEd) return send(res, 200, { editor: false, dept: targetDept, availableDepts });
+      if (!isEd) return send(res, 200, { editor: false, dept: targetDept });
       const key = weekStart(url.searchParams.get('week'));
       return key ? send(res, 200, {
         editor: true,
@@ -375,7 +342,6 @@ async function handler(req, res) {
         deptName: deptObj.name,
         deptTitle: deptObj.title,
         columnLabel: deptObj.columnLabel,
-        availableDepts,
         people: deptObj.people,
         shifts: deptObj.shifts,
         week: schedule(targetDept, key)
@@ -396,13 +362,7 @@ async function handler(req, res) {
         dept: targetDept,
         deptName: deptObj.name,
         deptTitle: deptObj.title,
-        columnLabel: deptObj.columnLabel,
-        availableDepts: Object.entries(db.departments).map(([id, d]) => ({
-          id,
-          name: d.name,
-          title: d.title,
-          columnLabel: d.columnLabel
-        }))
+        columnLabel: deptObj.columnLabel
       });
     }
 
@@ -431,6 +391,7 @@ async function handler(req, res) {
 
     if (path === '/api/week' && req.method === 'GET') {
       const targetDept = resolveDeptId(url.searchParams.get('dept'));
+      if (!authorized(req, targetDept)) return send(res, 401, { error: 'Acesso restrito' });
       const key = weekStart(url.searchParams.get('week'));
       return key ? send(res, 200, schedule(targetDept, key)) : send(res, 400, { error: 'Semana inválida' });
     }
