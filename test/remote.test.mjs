@@ -40,6 +40,13 @@ test('escala e login persistem entre chamadas e a troca de senha invalida a sess
   assert.deepEqual(login.body.people, ['Diego', 'Diogo']);
   const cookie = login.headers['Set-Cookie'].split(';')[0];
   assert.equal((await request('GET', '/api/me?dept=geral', undefined, cookie)).body.editor, true);
+  assert.equal((await request('GET', '/api/me?dept=camareiras', undefined, cookie)).body.editor, false);
+  assert.equal((await request('PUT', '/api/week?dept=camareiras', { dept: 'camareiras', start: '2030-01-07', entries: {} }, cookie)).status, 401);
+  const colors = { folga: '#abcdef', falta: '#123456', atestado: '#feddcc', troca_folga: '#987654' };
+  assert.equal((await request('PUT', '/api/status-colors', { dept: 'camareiras', colors }, cookie)).status, 401);
+  assert.deepEqual((await request('PUT', '/api/status-colors', { dept: 'geral', colors }, cookie)).body.statusColors, colors);
+  assert.deepEqual(state.db.departments.geral.statusColors, colors);
+  assert.notDeepEqual(state.db.departments.camareiras.statusColors, colors);
   assert.equal((await request('GET', '/api/bootstrap?dept=geral&week=2030-01-07', undefined, cookie)).body.week.start, '2030-01-07');
   const week = '2030-01-07';
   assert.equal((await request('PUT', '/api/week?dept=geral', { dept: 'geral', start: week, entries: { Diego: { 0: '06:30–14:30' } } }, cookie)).status, 200);
@@ -47,6 +54,9 @@ test('escala e login persistem entre chamadas e a troca de senha invalida a sess
   assert.equal((await request('POST', '/api/publish?dept=geral', { dept: 'geral', start: week }, cookie)).status, 200);
   assert.equal((await request('GET', `/api/public?dept=geral&week=${week}`)).body.entries.Diego[0], '06:30–14:30');
   assert.equal((await request('POST', '/api/change-password?dept=geral', { dept: 'geral', currentPassword: 'Senha123', newPassword: 'NovaSenha12' }, cookie)).status, 200);
+  assert.equal(typeof state.passwordHash, 'object');
   assert.equal((await request('GET', '/api/me?dept=geral', undefined, cookie)).body.editor, false);
   assert.equal((await request('POST', '/api/login?dept=geral', { dept: 'geral', password: 'NovaSenha12' })).status, 200);
+  assert.equal((await request('POST', '/api/login?dept=camareiras', { dept: 'camareiras', password: 'Senha123' })).status, 200);
+  assert.equal((await request('POST', '/api/login?dept=camareiras', { dept: 'camareiras', password: '123456' })).status, 401);
 });

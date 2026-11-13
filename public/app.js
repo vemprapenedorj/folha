@@ -2,7 +2,8 @@ import { dateKey, parseDate, startOfWeek, addDays, isoWeek, isoWeeksInYear, isoW
 
 const $ = (selector) => document.querySelector(selector);
 const names = ['segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado', 'domingo'];
-const labels = { folga: 'FOLGA', ferias: 'FÉRIAS', atestado: 'ATESTADO' };
+const labels = { folga: 'FOLGA', ferias: 'FÉRIAS', falta: 'FALTA', atestado: 'ATESTADO', troca_folga: 'TROCA DE FOLGA' };
+const defaultStatusColors = { folga: '#cfe7d2', falta: '#f3cbc2', atestado: '#f6dcab', troca_folga: '#cfe0f4' };
 const query = new URLSearchParams(location.search);
 const viewing = query.has('week');
 
@@ -11,12 +12,24 @@ let selectedDept = currentDept;
 let editor = false;
 let people = [];
 let shifts = [];
+let statusColors = { ...defaultStatusColors };
 let current = null;
 let dirty = false;
+let loading = false;
+let loadError = false;
+let loadId = 0;
 let selected = startOfWeek(viewing ? query.get('week') : dateKey(new Date()));
 
 function fmt(key, options) { return new Intl.DateTimeFormat('pt-BR', options).format(parseDate(key)); }
 function notice(text, error = false) { const el = $('#message'); el.textContent = text; el.classList.toggle('error', error); }
+function textColor(background) {
+  const rgb = [1, 3, 5].map(index => {
+    const channel = parseInt(background.slice(index, index + 2), 16) / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+  return luminance < 0.179 ? '#ffffff' : '#18313a';
+}
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
   const value = await response.json();
@@ -92,9 +105,11 @@ function render() {
   $('#today').textContent = `Semana atual · ${String(thisWeek.number).padStart(2, '0')}`;
   $('#status').textContent = current?.published ? 'Semana publicada' : 'Rascunho';
   $('#status').classList.toggle('published', Boolean(current?.published));
-  $('#save').disabled = !editor;
-  $('#publish').disabled = !editor;
-  $('#copy').disabled = !editor;
+  $('#save').disabled = !editor || loading || loadError;
+  $('#publish').disabled = !editor || loading || loadError;
+  $('#copy').disabled = !editor || loading || loadError;
+  $('#manage').disabled = !editor || loading || loadError;
+  $('#color-settings').disabled = !editor || loading || loadError;
   $('#share').disabled = !current?.published;
   $('#previous').disabled = viewing;
   $('#next').disabled = viewing;
@@ -126,8 +141,13 @@ function render() {
     names.forEach((_, day) => {
       const value = current?.entries?.[person]?.[day] || '';
       const td = document.createElement('td'); if (labels[value]) td.dataset.kind = value;
+      if (statusColors[value]) {
+        td.style.backgroundColor = statusColors[value];
+        td.style.color = textColor(statusColors[value]);
+      }
       if (editor) {
         const select = document.createElement('select');
+        select.disabled = loading || loadError;
         select.setAttribute('aria-label', `${person}, ${names[day]}, ${fmt(addDays(selected, day), { day: '2-digit', month: '2-digit' })}`);
         const optionsList = [
           ['', '— Selecionar —'],
@@ -165,40 +185,60 @@ function render() {
 }
 
 async function loadWeek() {
+  const requestId = ++loadId;
+  const requestedWeek = selected;
+  const requestedDept = currentDept;
+  loading = true;
+  loadError = false;
+  current = { start: requestedWeek, published: false, entries: {} };
+  dirty = false;
+  render();
   try {
+    let nextWeek, nextPeople, nextShifts, nextColors;
     if (editor) {
-      current = await api(`/api/week?week=${selected}&dept=${currentDept}`);
-      const dataInfo = await api(`/api/data?dept=${currentDept}`);
-      people = dataInfo.people;
-      shifts = dataInfo.shifts;
+      nextWeek = await api(`/api/week?week=${requestedWeek}&dept=${requestedDept}`);
+      const dataInfo = await api(`/api/data?dept=${requestedDept}`);
+      nextPeople = dataInfo.people;
+      nextShifts = dataInfo.shifts;
+      nextColors = dataInfo.statusColors;
     } else {
-      const value = await api(`/api/public?week=${selected}&dept=${currentDept}`);
-      people = value.people;
-      shifts = value.shifts;
-      current = value;
+      nextWeek = await api(`/api/public?week=${requestedWeek}&dept=${requestedDept}`);
+      nextPeople = nextWeek.people;
+      nextShifts = nextWeek.shifts;
+      nextColors = nextWeek.statusColors;
     }
+    if (requestId !== loadId) return;
+    current = nextWeek;
+    people = nextPeople;
+    shifts = nextShifts;
+    statusColors = { ...defaultStatusColors, ...nextColors };
     dirty = false;
+    loading = false;
     render();
     notice(current.published && current.updatedAt ? `Atualizada em ${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(current.updatedAt))}.` : '');
   } catch (error) {
+    if (requestId !== loadId) return;
+    loading = false;
+    loadError = true;
     if (viewing) {
-      current = { start: selected, published: false, entries: {} };
       people = [];
       shifts = [];
-      render();
-      notice(error.message, true);
-    } else {
-      notice(error.message, true);
     }
+    render();
+    notice(error.message, true);
   }
 }
 
 function showEditorWeek(data) {
+  loadId++;
+  loading = false;
+  loadError = false;
   editor = true;
   currentDept = data.dept || currentDept;
   selectedDept = currentDept;
   people = data.people;
   shifts = data.shifts;
+  statusColors = { ...defaultStatusColors, ...data.statusColors };
   current = data.week;
   dirty = false;
   showWorkspace();
@@ -213,6 +253,9 @@ async function logout() {
   try {
     await api('/api/logout', { method: 'POST' });
   } catch {}
+  loadId++;
+  loading = false;
+  loadError = false;
   editor = false;
   dirty = false;
   showLogin();
@@ -257,16 +300,23 @@ $('#login-form').addEventListener('submit', async event => {
   }
 });
 
-$('#previous').addEventListener('click', () => { selected = addDays(selected, -7); loadWeek(); });
-$('#next').addEventListener('click', () => { selected = addDays(selected, 7); loadWeek(); });
-$('#today').addEventListener('click', () => { selected = startOfWeek(dateKey(new Date())); loadWeek(); });
-$('#calendar').addEventListener('change', event => { selected = startOfWeek(event.target.value); loadWeek(); });
-$('#week-number').addEventListener('change', event => { selected = isoWeekStart(Number($('#week-year').value), Number(event.target.value)); loadWeek(); });
+function navigateWeek(nextWeek) {
+  if (nextWeek === selected) return render();
+  if (dirty && !confirm('Você tem alterações não salvas. Deseja trocar de semana e descartá-las?')) return render();
+  selected = nextWeek;
+  loadWeek();
+}
+
+$('#previous').addEventListener('click', () => navigateWeek(addDays(selected, -7)));
+$('#next').addEventListener('click', () => navigateWeek(addDays(selected, 7)));
+$('#today').addEventListener('click', () => navigateWeek(startOfWeek(dateKey(new Date()))));
+$('#calendar').addEventListener('change', event => navigateWeek(startOfWeek(event.target.value)));
+$('#week-number').addEventListener('change', event => navigateWeek(isoWeekStart(Number($('#week-year').value), Number(event.target.value))));
 $('#week-year').addEventListener('change', event => {
   const year = Number(event.target.value);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) { notice('Escolha um ano entre 2000 e 2100.', true); render(); return; }
   const number = Math.min(Number($('#week-number').value), isoWeeksInYear(year));
-  selected = isoWeekStart(year, number); loadWeek();
+  navigateWeek(isoWeekStart(year, number));
 });
 
 function openPasswordDialog() {
@@ -382,6 +432,7 @@ $('#share').addEventListener('click', async () => {
 });
 
 $('#manage').addEventListener('click', () => {
+  if (dirty) return notice('Salve as alterações da escala antes de editar funcionários e horários.', true);
   $('#people-list').value = people.join('\n');
   $('#shifts-list').value = shifts.join('\n');
   $('#manage-dialog').showModal();
@@ -401,6 +452,29 @@ $('#manage-dialog').addEventListener('close', async () => {
     notice('Listas atualizadas.');
   } catch (error) {
     notice(error.message, true);
+  }
+});
+
+$('#color-settings').addEventListener('click', () => {
+  for (const kind of Object.keys(defaultStatusColors)) {
+    $(`#color-${kind}`).value = statusColors[kind];
+  }
+  $('#colors-error').textContent = '';
+  $('#colors-dialog').showModal();
+});
+$('#close-colors').addEventListener('click', () => $('#colors-dialog').close());
+$('#cancel-colors').addEventListener('click', () => $('#colors-dialog').close());
+$('#colors-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const colors = Object.fromEntries(Object.keys(defaultStatusColors).map(kind => [kind, $(`#color-${kind}`).value]));
+  try {
+    const result = await api('/api/status-colors', { method: 'PUT', body: JSON.stringify({ dept: currentDept, colors }) });
+    statusColors = result.statusColors;
+    $('#colors-dialog').close();
+    render();
+    notice('Cores atualizadas para este setor. O link público já mostra a mudança.');
+  } catch (error) {
+    $('#colors-error').textContent = error.message;
   }
 });
 
@@ -432,8 +506,8 @@ $('#png').addEventListener('click', () => {
     ctx.fillStyle = '#18313a'; ctx.font = 'bold 16px Arial'; ctx.fillText(person.toLocaleUpperCase('pt-BR'), 15, y + rh / 2);
     names.forEach((_, day) => {
       const x = nw + cw * day, value = current?.entries?.[person]?.[day] || '';
-      ctx.fillStyle = value === 'folga' ? '#cfe7d2' : value === 'ferias' ? '#f6dcab' : value === 'atestado' ? '#f3cbc2' : '#ffffff'; ctx.fillRect(x, y, cw, rh);
-      ctx.fillStyle = value === 'folga' ? '#255a39' : value === 'ferias' ? '#80551d' : value === 'atestado' ? '#8c392c' : '#18313a';
+      ctx.fillStyle = statusColors[value] || (value === 'ferias' ? '#f6dcab' : '#ffffff'); ctx.fillRect(x, y, cw, rh);
+      ctx.fillStyle = statusColors[value] ? textColor(statusColors[value]) : value === 'ferias' ? '#80551d' : '#18313a';
       ctx.font = labels[value] ? 'bold 15px Arial' : '14px Arial'; ctx.fillText(labels[value] || value || '—', x + 9, y + rh / 2);
     });
   });

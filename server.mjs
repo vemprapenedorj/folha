@@ -35,9 +35,10 @@ const defaultShiftsGeral = [
   '11:00–19:00', '14:00–22:20', '19:00–07:00'
 ];
 
-const statuses = ['folga', 'ferias', 'atestado'];
+const statusColors = { folga: '#cfe7d2', falta: '#f3cbc2', atestado: '#f6dcab', troca_folga: '#cfe0f4' };
+const statuses = ['folga', 'ferias', 'falta', 'atestado', 'troca_folga'];
 let db;
-let adminPasswords = { camareiras: '123456', geral: '616263' };
+let adminPasswords = { camareiras: randomBytes(6).toString('hex'), geral: randomBytes(6).toString('hex') };
 let adminPasswordHash;
 let isSinglePasswordFile = false;
 let writing = Promise.resolve();
@@ -108,6 +109,9 @@ function resolveDeptId(id) {
 function getDept(id) {
   return db.departments[resolveDeptId(id)];
 }
+function getStatusColors(dept) {
+  return { ...statusColors, ...dept.statusColors };
+}
 
 async function remoteCall(name, payload) {
   const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
@@ -177,9 +181,9 @@ function verifyDeptPasswordRemote(dept, password) {
   return false;
 }
 
-function sessionSignature(expiry) {
+function sessionSignature(expiry, dept) {
   const hashStr = typeof adminPasswordHash === 'object' ? JSON.stringify(adminPasswordHash) : String(adminPasswordHash);
-  return createHmac('sha256', process.env.ESCALA_STORE_SECRET).update(`${expiry}:${hashStr}`).digest('hex');
+  return createHmac('sha256', process.env.ESCALA_STORE_SECRET).update(`${expiry}:${dept}:${hashStr}`).digest('hex');
 }
 
 function authorized(req, dept) {
@@ -189,8 +193,8 @@ function authorized(req, dept) {
     const expiry = match[1].slice(0, 12);
     if (parseInt(expiry, 16) <= Date.now()) return false;
     const received = Buffer.from(match[1].slice(12), 'hex');
-    const expected = Buffer.from(sessionSignature(expiry), 'hex');
-    return timingSafeEqual(received, expected);
+    const departments = dept ? [dept] : Object.keys(db.departments);
+    return departments.some(id => timingSafeEqual(received, Buffer.from(sessionSignature(expiry, id), 'hex')));
   }
   const match = /(?:^|; )escala_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || '');
   const data = match && sessions.get(match[1]);
@@ -255,7 +259,7 @@ function schedule(deptId, key) {
 function publicWeek(deptId, key) {
   const deptObj = getDept(deptId);
   const item = deptObj.weeks[key];
-  return item?.published ? { ...item, people: deptObj.people, shifts: deptObj.shifts } : null;
+  return item?.published ? { ...item, people: deptObj.people, shifts: deptObj.shifts, statusColors: getStatusColors(deptObj) } : null;
 }
 
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -284,7 +288,7 @@ async function handler(req, res) {
       if (!isValid) return send(res, 401, { error: 'Senha incorreta para a escala selecionada.' });
 
       const token = remoteMode
-        ? (() => { const expiry = (Date.now() + 7 * 86400_000).toString(16).padStart(12, '0'); return expiry + sessionSignature(expiry); })()
+        ? (() => { const expiry = (Date.now() + 7 * 86400_000).toString(16).padStart(12, '0'); return expiry + sessionSignature(expiry, targetDept); })()
         : randomBytes(32).toString('hex');
 
       if (!remoteMode) {
@@ -302,6 +306,7 @@ async function handler(req, res) {
         columnLabel: deptObj.columnLabel,
         people: deptObj.people,
         shifts: deptObj.shifts,
+        statusColors: getStatusColors(deptObj),
         week: initialWeek ? schedule(targetDept, initialWeek) : null
       };
       return send(res, 200, payload, { 'Set-Cookie': `escala_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
@@ -322,19 +327,15 @@ async function handler(req, res) {
 
       if (remoteMode) {
         if (typeof adminPasswordHash !== 'object' || !adminPasswordHash) {
-          adminPasswordHash = scryptSync(newPassword, 'escala-hotel-titanic', 32).toString('hex');
-        } else {
-          adminPasswordHash[targetDept] = scryptSync(newPassword, 'escala-hotel-titanic', 32).toString('hex');
+          adminPasswordHash = Object.fromEntries(Object.keys(db.departments).map(id => [id, adminPasswordHash]));
         }
+        adminPasswordHash[targetDept] = scryptSync(newPassword, 'escala-hotel-titanic', 32).toString('hex');
         await persist();
       } else {
         if (isSinglePasswordFile) {
-          for (const d of Object.keys(adminPasswords)) {
-            adminPasswords[d] = newPassword;
-          }
-        } else {
-          adminPasswords[targetDept] = newPassword;
+          isSinglePasswordFile = false;
         }
+        adminPasswords[targetDept] = newPassword;
         await writePasswords();
       }
       sessions.clear();
@@ -366,6 +367,7 @@ async function handler(req, res) {
         columnLabel: deptObj.columnLabel,
         people: deptObj.people,
         shifts: deptObj.shifts,
+        statusColors: getStatusColors(deptObj),
         week: schedule(targetDept, key)
       }) : send(res, 400, { error: 'Semana inválida' });
     }
@@ -394,7 +396,7 @@ async function handler(req, res) {
       const targetDept = resolveDeptId(url.searchParams.get('dept'));
       if (!authorized(req, targetDept)) return send(res, 401, { error: 'Acesso restrito' });
       const deptObj = getDept(targetDept);
-      return send(res, 200, { people: deptObj.people, shifts: deptObj.shifts, dept: targetDept });
+      return send(res, 200, { people: deptObj.people, shifts: deptObj.shifts, statusColors: getStatusColors(deptObj), dept: targetDept });
     }
 
     if (path === '/api/data' && req.method === 'PUT') {
@@ -409,6 +411,22 @@ async function handler(req, res) {
       deptObj.shifts = [...new Set(shifts.map(x => x.trim()))];
       await persist();
       return send(res, 200, { people: deptObj.people, shifts: deptObj.shifts, dept: targetDept });
+    }
+
+    if (path === '/api/status-colors' && req.method === 'PUT') {
+      const input = await bodyJson(req);
+      const targetDept = resolveDeptId(input.dept || url.searchParams.get('dept'));
+      if (!authorized(req, targetDept)) return send(res, 401, { error: 'Acesso restrito' });
+      const colors = input.colors;
+      if (!colors || typeof colors !== 'object' || Array.isArray(colors) ||
+          Object.keys(colors).length !== Object.keys(statusColors).length ||
+          Object.keys(statusColors).some(key => !/^#[0-9a-fA-F]{6}$/.test(colors[key]))) {
+        return send(res, 400, { error: 'Cores inválidas' });
+      }
+      const deptObj = getDept(targetDept);
+      deptObj.statusColors = Object.fromEntries(Object.keys(statusColors).map(key => [key, colors[key].toLowerCase()]));
+      await persist();
+      return send(res, 200, { statusColors: getStatusColors(deptObj) });
     }
 
     if (path === '/api/week' && req.method === 'GET') {
@@ -529,7 +547,6 @@ if (!remoteMode) {
           isSinglePasswordFile = true;
         }
       } catch {
-        adminPasswords = { camareiras: '123456', geral: '616263' };
         await writePasswords();
       }
     }

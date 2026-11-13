@@ -30,11 +30,20 @@ test('edição, publicação, consulta e correção da mesma semana', async () =
   const people = await request('GET', '/api/data', undefined, cookie);
   assert.equal(people.body.people.length, 18);
   assert.ok(people.body.people.includes('ADRIANE'));
-  const entries = { ADRIANE: { 0: '08:00–16:00', 1: 'folga' }, ANA: { 0: '14:00–22:00' } };
+  const colors = { folga: '#112233', falta: '#aa4422', atestado: '#ffee99', troca_folga: '#335577' };
+  assert.equal((await request('PUT', '/api/status-colors', { colors })).status, 401);
+  assert.equal((await request('PUT', '/api/status-colors', { colors: { ...colors, falta: 'red' } }, cookie)).status, 400);
+  assert.deepEqual((await request('PUT', '/api/status-colors', { colors }, cookie)).body.statusColors, colors);
+  assert.deepEqual((await request('GET', '/api/data', undefined, cookie)).body.statusColors, colors);
+  const entries = { ADRIANE: { 0: '08:00–16:00', 1: 'folga', 2: 'troca_folga' }, ANA: { 0: '14:00–22:00', 3: 'falta', 4: 'atestado' } };
   assert.equal((await request('PUT', '/api/week', { start: week, entries }, cookie)).status, 200);
   assert.equal((await request('GET', `/api/public?week=${week}`)).status, 404);
   assert.equal((await request('POST', '/api/publish', { start: week }, cookie)).body.published, true);
   assert.equal((await request('GET', `/api/public?week=${week}`)).body.entries.ADRIANE[0], '08:00–16:00');
+  assert.deepEqual((await request('GET', `/api/public?week=${week}`)).body.statusColors, colors);
+  const updatedColors = { ...colors, folga: '#223344' };
+  await request('PUT', '/api/status-colors', { colors: updatedColors }, cookie);
+  assert.deepEqual((await request('GET', `/api/public?week=${week}`)).body.statusColors, updatedColors);
   entries.ADRIANE[0] = '07:00–15:00';
   assert.equal((await request('PUT', '/api/week', { start: week, entries }, cookie)).status, 200);
   assert.equal((await request('GET', `/api/public?week=${week}`)).body.entries.ADRIANE[0], '07:00–15:00');
@@ -45,7 +54,9 @@ test('edição, publicação, consulta e correção da mesma semana', async () =
   assert.equal(copy.body.published, false);
   assert.equal(copy.body.entries.ADRIANE[0], '07:00–15:00');
   assert.equal(copy.body.entries.ADRIANE[1], 'folga');
+  assert.equal(copy.body.entries.ADRIANE[2], 'troca_folga');
   assert.equal(copy.body.entries.ANA[0], '14:00–22:00');
+  assert.equal(copy.body.entries.ANA[3], 'falta');
   assert.equal((await request('GET', `/api/public?week=${nextWeek}`)).status, 404);
   assert.equal((await request('POST', '/api/copy-week', { source: week, target: nextWeek, mode: 'fill' }, cookie)).body.copiedCount, 0);
 
@@ -83,10 +94,12 @@ test('edição, publicação, consulta e correção da mesma semana', async () =
   }
   assert.equal((await request('POST', '/api/change-password', { currentPassword: 'errada', newPassword: 'NovaSenha123' })).status, 401);
   assert.equal((await request('POST', '/api/change-password', { currentPassword: 'senha-de-teste', newPassword: 'NovaSenha123' })).status, 200);
-  assert.equal(await readFile(join(dir, 'admin-password.txt'), 'utf8'), 'NovaSenha123');
+  assert.match(await readFile(join(dir, 'admin-password.txt'), 'utf8'), /Governança \(Camareiras\): NovaSenha123/);
+  assert.equal(JSON.parse(await readFile(join(dir, 'passwords.json'), 'utf8')).geral, 'senha-de-teste');
   assert.equal((await request('GET', '/api/data', undefined, cookie)).status, 401);
   assert.equal((await request('POST', '/api/login', { password: 'senha-de-teste' })).status, 401);
   assert.equal((await request('POST', '/api/login', { password: 'NovaSenha123' })).status, 200);
+  assert.equal((await request('POST', '/api/login', { dept: 'geral', password: 'senha-de-teste' })).status, 200);
   assert.equal((await request('POST', '/api/change-password', { currentPassword: 'NovaSenha123', newPassword: 'Ab1234' })).status, 200);
   assert.equal((await request('POST', '/api/login', { password: 'Ab1234' })).status, 200);
   await rm(dir, { recursive: true, force: true });
