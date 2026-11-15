@@ -3,7 +3,7 @@ import { dateKey, parseDate, startOfWeek, addDays, isoWeek, isoWeeksInYear, isoW
 const $ = (selector) => document.querySelector(selector);
 const names = ['segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado', 'domingo'];
 const labels = { folga: 'FOLGA', ferias: 'FÉRIAS', falta: 'FALTA', atestado: 'ATESTADO', troca_folga: 'TROCA DE FOLGA' };
-const defaultStatusColors = { folga: '#cfe7d2', falta: '#f3cbc2', atestado: '#f6dcab', troca_folga: '#cfe0f4' };
+const defaultStatusColors = { folga: '#cfe7d2', ferias: '#f6dcab', falta: '#f3cbc2', atestado: '#f6dcab', troca_folga: '#cfe0f4' };
 const query = new URLSearchParams(location.search);
 const viewing = query.has('week');
 

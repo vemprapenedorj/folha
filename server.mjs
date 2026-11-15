@@ -35,7 +35,7 @@ const defaultShiftsGeral = [
   '11:00–19:00', '14:00–22:20', '19:00–07:00'
 ];
 
-const statusColors = { folga: '#cfe7d2', falta: '#f3cbc2', atestado: '#f6dcab', troca_folga: '#cfe0f4' };
+const statusColors = { folga: '#cfe7d2', ferias: '#f6dcab', falta: '#f3cbc2', atestado: '#f6dcab', troca_folga: '#cfe0f4' };
 const statuses = ['folga', 'ferias', 'falta', 'atestado', 'troca_folga'];
 let db;
 let adminPasswords = { camareiras: randomBytes(6).toString('hex'), geral: randomBytes(6).toString('hex') };
