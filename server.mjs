@@ -379,7 +379,7 @@ async function handler(req, res) {
       }) : send(res, 400, { error: 'Semana inválida' });
     }
 
-    if (path === '/api/version' && req.method === 'GET') return send(res, 200, { app: 'escala-hotel-titanic', version: 3, unified: true });
+    if (path === '/api/version' && req.method === 'GET') return send(res, 200, { app: 'escala-hotel-titanic', version: 4, unified: true, cacheFix: '20261116b' });
 
     if (path === '/api/public' && req.method === 'GET') {
       const targetDept = resolveDeptId(url.searchParams.get('dept'));
