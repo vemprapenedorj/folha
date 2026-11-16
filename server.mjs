@@ -39,6 +39,11 @@ const statusColors = { folga: '#cfe7d2', ferias: '#f6dcab', falta: '#f3cbc2', at
 const statuses = ['folga', 'ferias', 'falta', 'atestado', 'troca_folga'];
 // Labels imported from earlier housekeeping schedules; keep them valid without altering saved data.
 const legacyCamareirasStatuses = ['FOLGA EXTRA', 'FALTA', 'TROCA DE FOLGA'];
+function isAllowedMarking(dept, value, previousValue) {
+  return value === '' || dept.shifts.includes(value) || statuses.includes(value) ||
+    (dept.id === 'camareiras' && legacyCamareirasStatuses.includes(value)) ||
+    value === previousValue;
+}
 let db;
 let adminPasswords = { camareiras: randomBytes(6).toString('hex'), geral: randomBytes(6).toString('hex') };
 let adminPasswordHash;
@@ -454,11 +459,11 @@ async function handler(req, res) {
           if (!/^[0-6]$/.test(day)) return send(res, 400, { error: 'Marcação inválida' });
           // Preserve legacy labels already stored in this cell when saving other edits.
           const unchangedLegacyValue = previousEntries[person]?.[day] === value;
-          if (value !== '' && !deptObj.shifts.includes(value) && !statuses.includes(value) && !(targetDept === 'camareiras' && legacyCamareirasStatuses.includes(value)) && !unchangedLegacyValue) {
+          if (!isAllowedMarking(deptObj, value, unchangedLegacyValue ? value : undefined)) {
             if (/^\d{1,2}:\d{2}[–-]\d{1,2}:\d{2}$/.test(value)) {
               deptObj.shifts.push(value);
             } else {
-              return send(res, 400, { error: 'Marcação inválida' });
+              return send(res, 400, { error: `Marcação inválida: ${person}, dia ${Number(day) + 1} (${value}). Atualize a página e tente novamente.` });
             }
           }
           if (value) entries[person][day] = value;
@@ -485,7 +490,7 @@ async function handler(req, res) {
       let copiedCount = 0;
       for (const person of deptObj.people) {
         for (const [day, value] of Object.entries(source.entries[person] || {})) {
-          if (!/^[0-6]$/.test(day) || (!deptObj.shifts.includes(value) && !statuses.includes(value))) continue;
+          if (!/^[0-6]$/.test(day) || !isAllowedMarking(deptObj, value)) continue;
           if (input.mode === 'fill' && entries[person]?.[day]) continue;
           entries[person] ||= {};
           entries[person][day] = value;
