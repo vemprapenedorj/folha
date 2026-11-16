@@ -443,13 +443,16 @@ async function handler(req, res) {
       const key = weekStart(input.start);
       if (!key || key !== input.start || !input.entries || typeof input.entries !== 'object' || Array.isArray(input.entries)) return send(res, 400, { error: 'Escala inválida' });
       const deptObj = getDept(targetDept);
+      const previousEntries = deptObj.weeks[key]?.entries || {};
       const entries = {};
       for (const [person, days] of Object.entries(input.entries)) {
         if (!deptObj.people.includes(person) || !days || typeof days !== 'object' || Array.isArray(days)) return send(res, 400, { error: 'Funcionário inválido' });
         entries[person] = {};
         for (const [day, value] of Object.entries(days)) {
           if (!/^[0-6]$/.test(day)) return send(res, 400, { error: 'Marcação inválida' });
-          if (value !== '' && !deptObj.shifts.includes(value) && !statuses.includes(value)) {
+          // Preserve legacy labels already stored in this cell when saving other edits.
+          const unchangedLegacyValue = previousEntries[person]?.[day] === value;
+          if (value !== '' && !deptObj.shifts.includes(value) && !statuses.includes(value) && !unchangedLegacyValue) {
             if (/^\d{1,2}:\d{2}[–-]\d{1,2}:\d{2}$/.test(value)) {
               deptObj.shifts.push(value);
             } else {
