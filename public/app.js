@@ -4,6 +4,8 @@ const $ = (selector) => document.querySelector(selector);
 const names = ['segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado', 'domingo'];
 const labels = { folga: 'FOLGA', ferias: 'FÉRIAS', falta: 'FALTA', atestado: 'ATESTADO', troca_folga: 'TROCA DE FOLGA' };
 const defaultStatusColors = { folga: '#cfe7d2', ferias: '#f6dcab', falta: '#f3cbc2', atestado: '#f6dcab', troca_folga: '#cfe0f4' };
+const legacyColorKinds = { 'FALTA': 'falta', 'TROCA DE FOLGA': 'troca_folga', 'FOLGA EXTRA': 'folga' };
+function colorKind(value) { return legacyColorKinds[value] || value; }
 const query = new URLSearchParams(location.search);
 const viewing = query.has('week');
 
@@ -141,9 +143,10 @@ function render() {
     names.forEach((_, day) => {
       const value = current?.entries?.[person]?.[day] || '';
       const td = document.createElement('td'); if (labels[value]) td.dataset.kind = value;
-      if (statusColors[value]) {
-        td.style.backgroundColor = statusColors[value];
-        td.style.color = textColor(statusColors[value]);
+      const cellColor = statusColors[colorKind(value)];
+      if (cellColor) {
+        td.style.backgroundColor = cellColor;
+        td.style.color = textColor(cellColor);
       }
       if (editor) {
         const select = document.createElement('select');
@@ -506,8 +509,9 @@ $('#png').addEventListener('click', () => {
     ctx.fillStyle = '#18313a'; ctx.font = 'bold 16px Arial'; ctx.fillText(person.toLocaleUpperCase('pt-BR'), 15, y + rh / 2);
     names.forEach((_, day) => {
       const x = nw + cw * day, value = current?.entries?.[person]?.[day] || '';
-      ctx.fillStyle = statusColors[value] || (value === 'ferias' ? '#f6dcab' : '#ffffff'); ctx.fillRect(x, y, cw, rh);
-      ctx.fillStyle = statusColors[value] ? textColor(statusColors[value]) : value === 'ferias' ? '#80551d' : '#18313a';
+      const fillColor = statusColors[colorKind(value)];
+      ctx.fillStyle = fillColor || '#ffffff'; ctx.fillRect(x, y, cw, rh);
+      ctx.fillStyle = fillColor ? textColor(fillColor) : '#18313a';
       ctx.font = labels[value] ? 'bold 15px Arial' : '14px Arial'; ctx.fillText(labels[value] || value || '—', x + 9, y + rh / 2);
     });
   });
