@@ -37,6 +37,8 @@ const defaultShiftsGeral = [
 
 const statusColors = { folga: '#cfe7d2', ferias: '#f6dcab', falta: '#f3cbc2', atestado: '#f6dcab', troca_folga: '#cfe0f4' };
 const statuses = ['folga', 'ferias', 'falta', 'atestado', 'troca_folga'];
+// Labels imported from earlier housekeeping schedules; keep them valid without altering saved data.
+const legacyCamareirasStatuses = ['FOLGA EXTRA', 'FALTA', 'TROCA DE FOLGA'];
 let db;
 let adminPasswords = { camareiras: randomBytes(6).toString('hex'), geral: randomBytes(6).toString('hex') };
 let adminPasswordHash;
@@ -452,7 +454,7 @@ async function handler(req, res) {
           if (!/^[0-6]$/.test(day)) return send(res, 400, { error: 'Marcação inválida' });
           // Preserve legacy labels already stored in this cell when saving other edits.
           const unchangedLegacyValue = previousEntries[person]?.[day] === value;
-          if (value !== '' && !deptObj.shifts.includes(value) && !statuses.includes(value) && !unchangedLegacyValue) {
+          if (value !== '' && !deptObj.shifts.includes(value) && !statuses.includes(value) && !(targetDept === 'camareiras' && legacyCamareirasStatuses.includes(value)) && !unchangedLegacyValue) {
             if (/^\d{1,2}:\d{2}[–-]\d{1,2}:\d{2}$/.test(value)) {
               deptObj.shifts.push(value);
             } else {
